@@ -68,6 +68,10 @@ The GitHub editor has an **Assistant** panel (the toolbar button, or Ctrl/⌘+L)
 
 Tools: `list_repositories`, `status`, `diff`, `log`, `show_commit`, `read_file`, `branches`, `create_branch`, `checkout`, `commit`, `discard_changes`, `fetch`, `pull`, `push`, `merge`, `stash`, `stash_pop`, `list_pull_requests`, `create_pull_request`. Read-only and destructive tools are annotated so clients can ask before running them. Without `repository`, tools use `--repo <path>`, then the working directory, then the repository selected in Tributary. `GITHUB_TOKEN` works if you haven't signed in.
 
+## Folder picker on Linux
+
+On Linux, the **Choose…** buttons open Tributary's own folder chooser, with an editable path, up/home buttons, keyboard navigation and hidden folders on request. It no longer shells out to zenity or kdialog. Windows and macOS use the system's folder dialog, as GitHub Desktop does.
+
 ## Updates
 
 Tributary checks [GitHub Releases](https://github.com/p1e2r/tributary/releases) when it starts and every 6 hours. When there's a newer version, a banner offers **Update and restart**. One click downloads the build for your OS and CPU, unpacks it with Tributary's own gzip/tar/zip reader, swaps it in for the running copy (the `.app` bundle on macOS, the folder on Windows and Linux), and restarts. **Help → Check for updates…** checks right away. Automatic checks can be turned off in **Settings → Advanced**.
@@ -97,6 +101,10 @@ All git work runs on a worker thread, and the UI renders from snapshots. On Wind
 ### Icons, illustrations and the app icon
 
 `tools/artgen` draws them in C++ at build time: 68 line icons on a 16-unit grid (stroked with round caps and joins and written out as path data), the empty-state illustrations (rendered with its own anti-aliased rasterizer and saved as PNG with Tributary's own deflate), and the app icon (`artgen --app-icon assets/icon` writes the .png, .ico and .icns).
+
+### Shaders
+
+`tools/spirvgen` writes the two Vulkan shaders as SPIR-V directly, instruction by instruction, with a small SPIR-V builder, so no shader compiler is involved. CI runs the Khronos validator (`spirv-val`) on the output. The output renders pixel-for-pixel the same as glslang's compile of the reference GLSL in `src/gfx/shaders`. On macOS the same shaders are written in Metal's shading language.
 
 ### Vulkan
 

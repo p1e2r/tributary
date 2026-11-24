@@ -16,11 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Dependencies
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libssl-dev libvulkan-dev ninja-build
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libssl-dev libvulkan-dev ninja-build spirv-tools
       - name: Build
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build
+      - name: Our generated SPIR-V passes the Khronos validator
+        run: for s in build/generated/shaders/*.spv; do spirv-val --target-env vulkan1.0 "$s"; done
       - name: Our Vulkan declarations match the official headers
         run: g++ -std=c++20 tests/vk_layout_check.cpp -o /tmp/vk_layout_check && /tmp/vk_layout_check
       - name: Engine tests (cross-checked against git)

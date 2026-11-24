@@ -1,4 +1,5 @@
 #version 450
+// Reference only: what the shaders do, in GLSL. The SPIR-V the app uses is written by tools/spirvgen.
 layout(location = 0) in vec2 v_local;
 layout(location = 1) in vec2 v_half;
 layout(location = 2) in vec2 v_uv;

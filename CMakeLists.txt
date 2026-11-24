@@ -43,6 +43,15 @@ endif()
 if(TRIBUTARY_BUILD_APP)
   # Vulkan is loaded at runtime (vulkan-1.dll / libvulkan.so.1) and declared by our own
   # src/gfx/vk.hpp, so nothing Vulkan is needed to build. macOS uses the Metal backend.
+  # The Vulkan shaders, written as SPIR-V by our own generator (no shader compiler)
+  add_executable(spirvgen tools/spirvgen/spirvgen.cpp)
+  set(SPV_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/shaders)
+  add_custom_command(
+    OUTPUT ${SPV_DIR}/ui.vert.spv ${SPV_DIR}/ui.frag.spv
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SPV_DIR}
+    COMMAND spirvgen ${SPV_DIR}
+    DEPENDS spirvgen tools/spirvgen/spirvgen.cpp
+    VERBATIM)
   # Tributary's own icons and illustrations, drawn in code by tools/artgen at build time
   add_executable(artgen tools/artgen/artgen.cpp)
   target_link_libraries(artgen PRIVATE tribgit)
@@ -110,8 +119,8 @@ if(TRIBUTARY_BUILD_APP)
     ${FONT_DIR}/TributarySans-Regular.ttf
     ${FONT_DIR}/TributarySans-Bold.ttf
     ${FONT_DIR}/TributaryMono-Regular.ttf
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/shaders/ui.vert.spv
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/shaders/ui.frag.spv)
+    ${SPV_DIR}/ui.vert.spv
+    ${SPV_DIR}/ui.frag.spv)
   # Tributary's own illustrations (and icons, see below), drawn by tools/artgen
   list(APPEND EMBED_FILES ${ART_PNGS})
   string(REPLACE ";" "|" EMBED_LIST "${EMBED_FILES}")

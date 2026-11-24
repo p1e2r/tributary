@@ -235,25 +235,8 @@ public:
         return s;
     }
 
-    std::optional<std::string> pick_folder(const std::string& title, const std::string& start) override {
-        for (auto tool : {"zenity", "kdialog"}) {
-            std::string probe = std::string("command -v ") + tool + " >/dev/null 2>&1";
-            if (std::system(probe.c_str()) != 0) continue;
-            std::string cmd = std::string(tool) == "zenity"
-                                  ? "zenity --file-selection --directory --title=\"" + title + "\" --filename=\"" + start + "/\" 2>/dev/null"
-                                  : "kdialog --getexistingdirectory \"" + start + "\" --title \"" + title + "\" 2>/dev/null";
-            FILE* p = popen(cmd.c_str(), "r");
-            if (!p) continue;
-            char buf[4096];
-            std::string out;
-            while (fgets(buf, sizeof buf, p)) out += buf;
-            pclose(p);
-            while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
-            if (out.empty()) return std::nullopt;
-            return out;
-        }
-        return std::nullopt;
-    }
+    // Tributary draws its own folder chooser on Linux (App::draw_folder_picker)
+    std::optional<std::string> pick_folder(const std::string&, const std::string&) override { return std::nullopt; }
 
 private:
     void push(Event e) { queue_.push_back(std::move(e)); }

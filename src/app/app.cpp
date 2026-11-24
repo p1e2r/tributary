@@ -1607,7 +1607,12 @@ void App::frame() {
     } else {
         draw_menu_bar(strip);
     }
+    if (picker.open && ui.key_pressed(plat::Key::Escape)) {  // the picker sits above the dialog that opened it
+        ui.take_key(plat::Key::Escape);
+        picker.open = false;
+    }
     draw_dialogs();
+    if (picker.open) draw_folder_picker();
     draw_toasts();
     (void)T;
     ui.end_frame();

@@ -498,6 +498,17 @@ public:
         std::set<int> models_loading;
         float scroll_to_bottom = 1;
     } agent;
+    // Linux folder chooser, drawn by Tributary itself (no zenity/kdialog)
+    struct FolderPicker {
+        bool open = false, hidden = false;
+        std::string title, dir, typed, error;
+        std::vector<std::string> dirs;
+        std::string* target = nullptr;
+        int sel = -1;
+    } picker;
+    void open_folder_picker(const std::string& title, const std::string& start, std::string* target);
+    void picker_go(const std::string& dir);
+    void draw_folder_picker();
     struct UpdateState {
         enum S { Idle, Checking, UpToDate, Available, Downloading, Installing, Failed } s = Idle;
         std::string version, notes_url, asset_url, asset_name, error;

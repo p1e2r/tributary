@@ -64,7 +64,11 @@ static void path_picker(App& a, float x, float y, float w, std::string& path, ui
     ui::text_field(a.ui, id, {x, y, w - bw - 8, 25}, path, {});
     if (ui::button(a.ui, id ^ 0xb7, {x + w - bw, y, bw, 25}, "Choose…")) {
         std::string start = path.empty() ? git::path_to_git(git::home_dir()) : path;
-        if (auto p = a.win.pick_folder(title, start)) path = *p;
+#if defined(_WIN32) || defined(__APPLE__)
+        if (auto p = a.win.pick_folder(title, start)) path = *p;  // the system's own folder dialog
+#else
+        a.open_folder_picker(title, start, &path);
+#endif
     }
 }
 
@@ -1308,6 +1312,120 @@ void App::draw_dialogs() {
         case Dialog::IdeNewFile:
         case Dialog::IdeConfirmDiscard: draw_ide_dialogs(); break;
     }
+}
+
+}  // namespace app
+
+// ================================================================ folder picker (Linux)
+namespace app {
+
+void App::open_folder_picker(const std::string& title, const std::string& start, std::string* target) {
+    picker = FolderPicker{};
+    picker.open = true;
+    picker.title = title;
+    picker.target = target;
+    std::error_code ec;
+    fs::path p = git::git_to_path(start);
+    while (!p.empty() && !fs::is_directory(p, ec)) p = p.parent_path();
+    picker_go(p.empty() ? git::path_to_git(git::home_dir()) : git::path_to_git(p));
+    ui.focus = ui.id("pick-path");
+}
+
+void App::picker_go(const std::string& dir) {
+    std::error_code ec;
+    fs::path p = fs::weakly_canonical(git::git_to_path(dir), ec);
+    if (ec || !fs::is_directory(p, ec)) { picker.error = "There's no folder at " + dir + "."; return; }
+    std::vector<std::string> out;
+    for (auto it = fs::directory_iterator(p, fs::directory_options::skip_permission_denied, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        std::error_code e2;
+        if (!it->is_directory(e2)) continue;
+        std::string name = git::path_to_git(it->path().filename());
+        if (!picker.hidden && !name.empty() && name[0] == '.') continue;
+        out.push_back(name);
+    }
+    if (ec) { picker.error = "Can't open " + git::path_to_git(p) + ": " + ec.message() + "."; return; }
+    std::sort(out.begin(), out.end(), [](const std::string& a, const std::string& b) {
+        auto la = git::to_lower(a), lb = git::to_lower(b);
+        return la != lb ? la < lb : a < b;
+    });
+    picker.dir = git::path_to_git(p);
+    picker.typed = picker.dir;
+    picker.dirs = std::move(out);
+    picker.sel = -1;
+    picker.error.clear();
+    ui.scroll_state(ui.id("pick-list")).offset = 0;
+}
+
+void App::draw_folder_picker() {
+    auto& T = ui.theme;
+    auto& P = picker;
+    bool closed = false;
+    Rect c = ui::begin_modal(ui, ui.id("pick-modal"), P.title, 560, 470, &closed);
+    float x = c.x + 20, w = c.w - 40, y = c.y + 16;
+    // path bar: up, home, editable path
+    std::error_code ec;
+    fs::path cur = git::git_to_path(P.dir);
+    if (ui::icon_button(ui, ui.id("pick-up"), {x, y, 25, 25}, "arrow-up", "Enclosing folder") && cur.has_parent_path() && cur.parent_path() != cur)
+        picker_go(git::path_to_git(cur.parent_path()));
+    if (ui::icon_button(ui, ui.id("pick-home"), {x + 30, y, 25, 25}, "file-directory", "Home folder")) picker_go(git::path_to_git(git::home_dir()));
+    auto pid = ui.id("pick-path");
+    if (ui.has_focus(pid) && ui.key_pressed(Key::Enter, 0)) {
+        ui.take_key(Key::Enter, 0);
+        std::string t = git::trim(P.typed);
+        if (!t.empty() && t[0] == '~') t = git::path_to_git(git::home_dir()) + t.substr(1);
+        picker_go(t);
+    }
+    ui::text_field(ui, pid, {x + 62, y, w - 62, 25}, P.typed, {});
+    y += 35;
+    // folder list
+    Rect list{x, y, w, c.bottom() - 65 - 50 - y};
+    r.rect(list, T.bg, 4, 1, T.border);
+    auto lid = ui.id("pick-list");
+    float rh = 29;
+    float off = ui::begin_scroll(ui, lid, list.inset(1, 1));
+    float ry = list.y + 1 - off;
+    for (size_t i = 0; i < P.dirs.size(); i++, ry += rh) {
+        if (ry + rh < list.y || ry > list.bottom()) continue;
+        Rect row{list.x + 1, ry, list.w - 2, rh};
+        bool dbl = false;
+        if (ui::row_click(ui, ui.id("pick-row", int64_t(i)), row, &dbl)) P.sel = int(i);
+        bool selc = int(i) == P.sel;
+        if (selc) r.rect(row, T.row_selected_focus);
+        else if (ui.hovered(row)) r.rect(row, T.row_hover);
+        Color fg = selc ? T.row_selected_text : T.text;
+        r.icon("file-directory", row.x + 10, row.y + 6, 16, selc ? fg : T.text_muted);
+        r.draw_text_in(FontId::Regular, 12, {row.x + 34, row.y, row.w - 40, row.h}, r.ellipsize(FontId::Regular, 12, P.dirs[i], row.w - 44), fg);
+        if (dbl) {
+            picker_go(git::path_to_git(cur / git::git_to_path(P.dirs[i])));
+            break;
+        }
+    }
+    if (P.dirs.empty())
+        r.draw_text_in(FontId::Regular, 12, {list.x, list.y + 20, list.w, 20}, "No folders in here", T.text_muted, Align::Center);
+    ui::end_scroll(ui, lid, list.inset(1, 1), float(P.dirs.size()) * rh + 2);
+    // keyboard: arrows move, Enter opens
+    if (!ui.has_focus(ui.id("pick-path")) && !P.dirs.empty()) {
+        if (ui.key_pressed(Key::Down)) { ui.take_key(Key::Down); P.sel = std::min(int(P.dirs.size()) - 1, P.sel + 1); }
+        if (ui.key_pressed(Key::Up)) { ui.take_key(Key::Up); P.sel = std::max(0, P.sel - 1); }
+        if (P.sel >= 0 && ui.key_pressed(Key::Enter, 0)) { ui.take_key(Key::Enter, 0); picker_go(git::path_to_git(cur / git::git_to_path(P.dirs[size_t(P.sel)]))); }
+    }
+    y = list.bottom() + 12;
+    bool hidden = P.hidden;
+    ui::checkbox_label(ui, ui.id("pick-hidden"), {x, y, 200, 24}, P.hidden, "Show hidden folders");
+    if (hidden != P.hidden) picker_go(P.dir);
+    if (!P.error.empty()) r.draw_text_in(FontId::Regular, 12, {x + 210, y, w - 210, 24}, r.ellipsize(FontId::Regular, 12, P.error, w - 210), T.danger);
+    // footer (own ids: the dialog underneath has its own OK/Cancel)
+    Rect f{c.x, c.bottom() - 65, c.w, 65};
+    r.line_h(f.x, f.right(), f.y, T.border);
+    std::string chosen = P.sel >= 0 && size_t(P.sel) < P.dirs.size() ? git::path_to_git(cur / git::git_to_path(P.dirs[size_t(P.sel)])) : P.dir;
+    std::string ok_label = P.sel >= 0 ? "Choose \"" + P.dirs[size_t(P.sel)] + "\"" : "Choose this folder";
+    float bw = std::max(120.f, ui.text_w(FontId::Regular, 12, ok_label) + 20);
+    Rect okr{f.right() - 20 - 120 - 5 - bw, f.y + 20, bw, 25}, cr{f.right() - 20 - 120, f.y + 20, 120, 25};
+    bool ok = ui::button(ui, ui.id("pick-ok"), okr, ok_label, ui::BtnStyle::Primary);
+    bool cancel = ui::button(ui, ui.id("pick-cancel"), cr, "Cancel");
+    ui::end_modal(ui);
+    if (ok && P.target) *P.target = chosen;
+    if (ok || cancel || closed) P.open = false;
 }
 
 }  // namespace app

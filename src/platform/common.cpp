@@ -8,6 +8,7 @@
 #include <filesystem>
 
 #include "platform.hpp"
+#include "../git/process.hpp"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -144,8 +145,7 @@ void open_in_terminal(const std::string& path, const std::string& custom) {
     spawn_detached({"open", "-a", "Terminal", path});
 #else
     for (auto t : {"x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "alacritty", "kitty", "xterm"}) {
-        std::string probe = std::string("command -v ") + t + " >/dev/null 2>&1";
-        if (std::system(probe.c_str()) == 0) {
+        if (!git::find_program(t).empty()) {
             if (std::string(t) == "gnome-terminal") spawn_detached({t, "--working-directory=" + path});
             else if (std::string(t) == "konsole") spawn_detached({t, "--workdir", path});
             else spawn_detached({"sh", "-c", "cd \"$0\" && exec " + std::string(t), path});
@@ -170,8 +170,8 @@ void open_in_editor(const std::string& path, const std::string& custom) {
 #elif defined(_WIN32)
     spawn_detached({"cmd.exe", "/c", "code", path});
 #else
-    if (std::system("command -v code >/dev/null 2>&1") == 0) spawn_detached({"code", path});
-    else if (std::system("command -v zed >/dev/null 2>&1") == 0) spawn_detached({"zed", path});
+    if (!git::find_program("code").empty()) spawn_detached({"code", path});
+    else if (!git::find_program("zed").empty()) spawn_detached({"zed", path});
     else spawn_detached({"xdg-open", path});
 #endif
 }

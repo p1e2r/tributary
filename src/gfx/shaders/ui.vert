@@ -1,4 +1,5 @@
 #version 450
+// Reference only: what the shaders do, in GLSL. The SPIR-V the app uses is written by tools/spirvgen.
 // One instance per quad. Corners are generated from gl_VertexIndex.
 layout(location = 0) in vec4 in_rect;    // x, y, w, h (pixels)
 layout(location = 1) in vec4 in_uv;      // u0, v0, u1, v1 (atlas pixels)
