@@ -68,6 +68,12 @@ Key map_vk(WPARAM vk) {
         case VK_OEM_PERIOD: return Key::Period;
         case VK_OEM_2: return Key::Slash;
         case VK_OEM_MINUS: return Key::Minus;
+        case VK_OEM_3: return Key::Grave;
+        case VK_OEM_4: return Key::LeftBracket;
+        case VK_OEM_6: return Key::RightBracket;
+        case VK_OEM_5: return Key::Backslash;
+        case VK_OEM_1: return Key::Semicolon;
+        case VK_OEM_7: return Key::Quote;
         case VK_OEM_PLUS: return Key::Equals;
     }
     return Key::Unknown;

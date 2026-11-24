@@ -4,6 +4,7 @@
 #pragma once
 
 #include <functional>
+#include <stdexcept>
 #include <optional>
 #include <string>
 #include <vector>

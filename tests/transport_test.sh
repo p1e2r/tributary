@@ -25,7 +25,7 @@ $T push origin main
 check "push to empty remote" "git -C $W/srv/remote.git rev-parse refs/heads/main >/dev/null"
 check "remote passes fsck" "[ -z \"\$(git -C $W/srv/remote.git fsck --strict refs/heads/main 2>&1 | grep -E 'error|missing|broken')\" ]"
 cd "$W" && $T clone $URL b 2>/dev/null && cd b
-check "clone has content" "[ \"\$(cat one.txt)\" = one ] && [ \"\$(wc -l < d/n.txt)\" = 2000 ]"
+check "clone has content" "[ \"\$(cat one.txt)\" = one ] && [ \"\$(wc -l < d/n.txt | tr -d ' ')\" = 2000 ]"
 check "clone tracks origin" "[ \"\$(git rev-parse --abbrev-ref main@{upstream})\" = origin/main ]"
 echo two >> one.txt; $T commit c2 >/dev/null; $T push
 cd "$W/a"; git config branch.main.remote origin; git config branch.main.merge refs/heads/main
@@ -35,7 +35,7 @@ echo x > x.txt; $T commit "a only" >/dev/null; $T push
 cd "$W/b"; echo y > y.txt; $T commit "b only" >/dev/null
 check "non-fast-forward push is rejected" "! $T push 2>/dev/null"
 $T pull >/dev/null
-check "pull merges divergent history" "[ \$(git log -1 --format=%p | wc -w) = 2 ] && [ -e x.txt ] && [ -e y.txt ]"
+check "pull merges divergent history" "[ \$(git log -1 --format=%p | wc -w | tr -d ' ') = 2 ] && [ -e x.txt ] && [ -e y.txt ]"
 $T push
 check "push after merge" "[ \"\$(git -C $W/srv/remote.git rev-parse refs/heads/main)\" = \"\$(git rev-parse HEAD)\" ]"
 check "remote fsck after merge push" "[ -z \"\$(git -C $W/srv/remote.git fsck --strict refs/heads/main 2>&1 | grep -E 'error|missing|broken')\" ]"

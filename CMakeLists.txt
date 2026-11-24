@@ -54,14 +54,14 @@ if(TRIBUTARY_BUILD_APP)
   endif()
   set(APP_SOURCES
     src/gfx/font.cpp src/gfx/renderer.cpp src/gfx/embedded.cpp src/gfx/image.cpp
-    src/ui/ui.cpp src/ui/widgets.cpp src/ui/code_editor.cpp
+    src/ui/ui.cpp src/ui/widgets.cpp src/ui/code_editor.cpp src/ui/terminal.cpp
     src/app/main.cpp src/app/app.cpp src/app/views.cpp src/app/dialogs.cpp src/app/ide.cpp src/platform/common.cpp)
   if(WIN32)
-    list(APPEND APP_SOURCES src/platform/platform_win32.cpp src/app/tributary.rc src/app/tributary.manifest)
+    list(APPEND APP_SOURCES src/platform/platform_win32.cpp src/platform/pty_win32.cpp src/app/tributary.rc src/app/tributary.manifest)
     add_executable(Tributary WIN32 ${APP_SOURCES})
     target_link_libraries(Tributary PRIVATE user32 gdi32 shell32 ole32 dwmapi imm32 comdlg32 shcore)
   elseif(APPLE)
-    list(APPEND APP_SOURCES src/platform/platform_cocoa.cpp)
+    list(APPEND APP_SOURCES src/platform/platform_cocoa.cpp src/platform/pty_posix.cpp)
     add_executable(Tributary MACOSX_BUNDLE ${APP_SOURCES} assets/icon/Tributary.icns)
     set_source_files_properties(assets/icon/Tributary.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(Tributary PROPERTIES
@@ -81,7 +81,7 @@ if(TRIBUTARY_BUILD_APP)
     endif()
   else()
     find_package(X11 REQUIRED)
-    list(APPEND APP_SOURCES src/platform/platform_x11.cpp)
+    list(APPEND APP_SOURCES src/platform/platform_x11.cpp src/platform/pty_posix.cpp)
     add_executable(Tributary ${APP_SOURCES})
     target_link_libraries(Tributary PRIVATE X11::X11)
   endif()

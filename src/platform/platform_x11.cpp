@@ -49,6 +49,12 @@ Key map_key(KeySym ks) {
         case XK_period: return Key::Period;
         case XK_slash: return Key::Slash;
         case XK_minus: return Key::Minus;
+        case XK_grave: return Key::Grave;
+        case XK_bracketleft: return Key::LeftBracket;
+        case XK_bracketright: return Key::RightBracket;
+        case XK_backslash: return Key::Backslash;
+        case XK_semicolon: return Key::Semicolon;
+        case XK_apostrophe: return Key::Quote;
         case XK_equal: return Key::Equals;
     }
     return Key::Unknown;

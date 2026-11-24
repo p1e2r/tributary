@@ -21,7 +21,7 @@ enum class Key : uint16_t {
     Num0, Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9,
     Enter, Escape, Backspace, Tab, Space, Delete, Insert, Home, End, PageUp, PageDown,
     Left, Right, Up, Down, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    Comma, Period, Slash, Minus, Equals, Count
+    Comma, Period, Slash, Minus, Equals, Grave, LeftBracket, RightBracket, Backslash, Semicolon, Quote, Count
 };
 
 enum Mods : uint8_t { ModShift = 1, ModCtrl = 2, ModAlt = 4, ModSuper = 8 };
@@ -99,6 +99,24 @@ public:
     // (macOS: transparent full-size title bar with the traffic lights in it).
     virtual float titlebar_height() const { return 0; }
 };
+
+// ---------------------------------------------------------------- pseudo-terminals
+// A child process (usually a shell) attached to a pseudo-terminal: POSIX ptys on
+// macOS/Linux, ConPTY on Windows 10 1809+. A reader thread collects output.
+class Pty {
+public:
+    static std::unique_ptr<Pty> spawn(const std::vector<std::string>& argv, const std::string& cwd, int cols, int rows,
+                                      std::string* error = nullptr);
+    virtual ~Pty() = default;
+    virtual void write(std::string_view data) = 0;
+    virtual void resize(int cols, int rows) = 0;
+    virtual std::string take_output() = 0;  // drains output collected since the last call
+    virtual bool alive() const = 0;
+    virtual int exit_code() const = 0;
+    virtual void kill() = 0;
+    std::function<void()> on_data;  // called on the reader thread; use it to wake the UI
+};
+std::vector<std::string> default_shell();
 
 // Shell integration
 void open_url(const std::string& url);

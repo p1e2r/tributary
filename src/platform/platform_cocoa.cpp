@@ -77,7 +77,8 @@ Key map_keycode(unsigned short k) {
         {0x79, Key::PageDown}, {0x7B, Key::Left}, {0x7C, Key::Right}, {0x7E, Key::Up}, {0x7D, Key::Down},
         {0x7A, Key::F1}, {0x78, Key::F2}, {0x63, Key::F3}, {0x76, Key::F4}, {0x60, Key::F5}, {0x61, Key::F6},
         {0x62, Key::F7}, {0x64, Key::F8}, {0x65, Key::F9}, {0x6D, Key::F10}, {0x67, Key::F11}, {0x6F, Key::F12},
-        {0x2B, Key::Comma}, {0x2F, Key::Period}, {0x2C, Key::Slash}, {0x1B, Key::Minus}, {0x18, Key::Equals},
+        {0x2B, Key::Comma}, {0x2F, Key::Period}, {0x2C, Key::Slash}, {0x1B, Key::Minus}, {0x18, Key::Equals}, {0x32, Key::Grave}, {0x21, Key::LeftBracket},
+        {0x1E, Key::RightBracket}, {0x2A, Key::Backslash}, {0x29, Key::Semicolon}, {0x27, Key::Quote},
     };
     for (auto& t : table) if (t.code == k) return t.key;
     return Key::Unknown;

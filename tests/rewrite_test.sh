@@ -33,7 +33,7 @@ echo feat2 >> feat.txt; $T commit "feature 2" >/dev/null
 $T checkout main; echo m > main.txt; $T commit "main moves" >/dev/null
 $T checkout feature
 check "rebase clean" "[ \"\$($T rebase refs/heads/main)\" = done ] && [ \"\$(subjects | cut -d'|' -f1-3)\" = 'feature 2|feature 1|main moves' ] && clean"
-check "rebase result linear" "[ \$(git rev-list --merges HEAD | wc -l) = 0 ] && git merge-base --is-ancestor main feature"
+check "rebase result linear" "[ \$(git rev-list --merges HEAD | wc -l | tr -d ' ') = 0 ] && git merge-base --is-ancestor main feature"
 
 # rebase with a conflict, then continue
 $T checkout main; echo "main side" > shared.txt; $T commit "main shared" >/dev/null
@@ -56,7 +56,7 @@ $T branch side; $T checkout side; echo s1 > s.txt; $T commit "side 1" >/dev/null
 $T checkout main
 check "preview clean merge" "[ \"\$($T preview refs/heads/side)\" = 'clean commits=2 conflicts=0' ] || [ \"\$($T preview refs/heads/side)\" = 'fast-forward commits=2 conflicts=0' ]"
 echo x > x.txt; $T commit "main x" >/dev/null
-check "squash merge makes one commit" "[ \"\$($T squash-merge refs/heads/side)\" = merged ] && [ \$(git log -1 --format=%p | wc -w) = 1 ] && [ \"\$(cat s.txt)\" = \$'s1\ns2' ] && clean"
+check "squash merge makes one commit" "[ \"\$($T squash-merge refs/heads/side)\" = merged ] && [ \$(git log -1 --format=%p | wc -w | tr -d ' ') = 1 ] && [ \"\$(cat s.txt)\" = \$'s1\ns2' ] && clean"
 check "squash message lists commits" "git log -1 --format=%B | grep -q '\* side 2'"
 
 # cherry-pick onto another branch

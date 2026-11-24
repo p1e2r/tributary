@@ -53,7 +53,7 @@ $T checkout feature; printf 'hello\nthere\nworld\nfeature-end\n' > a.txt; $T com
 $T checkout $base; printf 'base-start\nhello\nthere\nworld\n' > a.txt; $T commit "base edits a" >/dev/null
 check "3-way merge clean" "[ \"\$($T merge refs/heads/feature)\" = merged ]"
 check "merged content" "[ \"\$(head -1 a.txt)\" = base-start ] && [ \"\$(tail -1 a.txt)\" = feature-end ]"
-check "merge commit has 2 parents" "[ \$(git log -1 --format=%p | wc -w) = 2 ] && [ -z \"\$(git status --porcelain)\" ]"
+check "merge commit has 2 parents" "[ \$(git log -1 --format=%p | wc -w | tr -d ' ') = 2 ] && [ -z \"\$(git status --porcelain)\" ]"
 check "fsck after merge" "[ -z \"\$(git fsck --strict 2>&1 | grep -E 'error|missing|broken')\" ]"
 
 # conflict
@@ -64,7 +64,7 @@ check "markers written" "grep -q '<<<<<<< HEAD' c.txt"
 check "git sees unmerged path" "git status --porcelain | grep -q '^AA c.txt'"
 echo resolved > c.txt
 $T commit "Merge feature (resolved)" >/dev/null
-check "merge concluded" "[ \$(git log -1 --format=%p | wc -w) = 2 ] && [ ! -e .git/MERGE_HEAD ] && [ -z \"\$(git status --porcelain)\" ]"
+check "merge concluded" "[ \$(git log -1 --format=%p | wc -w | tr -d ' ') = 2 ] && [ ! -e .git/MERGE_HEAD ] && [ -z \"\$(git status --porcelain)\" ]"
 
 # stash
 echo stashme >> a.txt; echo newfile > n.txt
@@ -89,7 +89,7 @@ git checkout -q -- . 2>/dev/null || true
 
 # reading packed objects: gc then read everything back
 git gc -q --aggressive
-check "log works from packs" "[ \"\$($T log 100 | wc -l)\" = \"\$(git rev-list --count HEAD)\" ]"
+check "log works from packs" "[ \"\$($T log 100 | wc -l | tr -d ' ')\" = \"\$(git rev-list --count HEAD)\" ]"
 check "catfile from pack" "[ \"\$($T catfile HEAD:a.txt)\" = \"\$(git show HEAD:a.txt)\" ]"
 check "status clean after gc" "[ -z \"\$($T status)\" ]"
 for c in $(git rev-list HEAD); do
