@@ -9,6 +9,7 @@
 namespace fg {
 
 constexpr double kPi = 3.14159265358979323846;
+inline double g_arc_step = 3.0;  // degrees per segment when flattening arcs
 
 struct Pt {
     double x = 0, y = 0;
@@ -94,7 +95,7 @@ struct Path {
     // superellipse arc centred (cx,cy) from angle a0 to a1 (degrees, CCW positive)
     Path& A(double cx, double cy, double rx, double ry, double a0, double a1, double n = 0) {
         if (n <= 0) n = superness;
-        int steps = std::max(4, int(std::fabs(a1 - a0) / 3.0));
+        int steps = std::max(4, int(std::fabs(a1 - a0) / g_arc_step));
         bool first = p.empty();
         for (int i = first ? 0 : 0; i <= steps; i++) {
             double a = (a0 + (a1 - a0) * i / steps) * kPi / 180;
@@ -128,14 +129,17 @@ struct Pen {
 
 inline Pt left_normal(Pt d) { return {-d.y, d.x}; }
 
-inline void stroke(const Path& path, const Pen& pen, std::vector<Contour>& out, const Clip& clipr = {}, double miter_limit = 4) {
+inline Contour superellipse(double cx, double cy, double rx, double ry, double sn = 2.6, int steps = 48);
+
+// round = true: round caps and joins (icon line-work) instead of butt caps and mitres
+inline void stroke(const Path& path, const Pen& pen, std::vector<Contour>& out, const Clip& clipr = {}, double miter_limit = 4, bool round = false) {
     std::vector<Pt> p = path.p;
     std::vector<char> corner = path.corner;
     size_t n = p.size();
     if (n < 2) return;
     auto emit = [&](Contour c) {
         if (clipr.any()) c = clip(c, clipr);
-        if (c.size() < 3 || std::fabs(area(c)) < 1) return;
+        if (c.size() < 3 || std::fabs(area(c)) < 1e-4) return;
         make_cw(c);
         out.push_back(std::move(c));
     };
@@ -204,12 +208,20 @@ inline void stroke(const Path& path, const Pen& pen, std::vector<Contour>& out, 
         }
         emit(w);
     };
+    if (round) {
+        auto disc = [&](Pt c) { emit(superellipse(c.x, c.y, pen.hx, pen.hy, 2.0, 16)); };
+        for (size_t i = 1; i + 1 < n; i++)
+            if (corner[i]) disc(p[i]);
+        if (path.closed) { if (corner[0]) disc(p[0]); }
+        else { disc(p[0]); disc(p[n - 1]); }
+        return;
+    }
     for (size_t i = 1; i + 1 < n; i++)
         if (corner[i]) join(i, dir[i - 1], dir[i]);
     if (path.closed && corner[0]) join(0, dir[n - 2], dir[0]);
 }
 
-inline Contour superellipse(double cx, double cy, double rx, double ry, double sn = 2.6, int steps = 48) {
+inline Contour superellipse(double cx, double cy, double rx, double ry, double sn, int steps) {
     Contour c;
     for (int i = 0; i < steps; i++) {
         double a = 2 * kPi * i / steps, co = std::cos(a), si = std::sin(a);

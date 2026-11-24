@@ -773,7 +773,7 @@ void App::draw_menu_bar(const Rect& rc) {
     r.rect(rc, T.dark ? T.bg_toolbar : Color::hex(0x24292e));
     float x = rc.x + 8;
     // app icon
-    r.icon("git-branch", x + 2, rc.y + (rc.h - 16) / 2, 16, T.toolbar_text_dim);
+    r.icon("tributary-mark", x + 2, rc.y + (rc.h - 16) / 2, 16, T.toolbar_text_dim);
     x += 30;
     auto pid = ui.id("menubar-pane");
     if (!ui.popup_open(pid)) menubar_open_ = -1;

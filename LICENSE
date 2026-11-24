@@ -21,5 +21,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 -------------------------------------------------------------------------------
-Bundled assets keep their own licenses:
-  src/app/octicons.inc (icon paths)   MIT, Copyright (c) GitHub Inc. (assets/OCTICONS-LICENSE.txt)
+Everything in this repository is covered by the license above, including the
+typefaces (tools/fontgen), icons, illustrations and app icon (tools/artgen),
+which are generated from source at build time. The UI's colour and size values
+follow GitHub Desktop's stylesheets (MIT, Copyright (c) GitHub, Inc.).

@@ -11,8 +11,7 @@
 #include <string>
 #include <vector>
 
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
+#include "../gfx/vk.hpp"  // our own Vulkan declarations
 
 namespace plat {
 

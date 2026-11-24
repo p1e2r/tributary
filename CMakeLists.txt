@@ -41,18 +41,24 @@ endif()
 
 # ---------------------------------------------------------------- app
 if(TRIBUTARY_BUILD_APP)
-  # Only Vulkan *headers* are needed: the loader (vulkan-1.dll / libvulkan.so.1) is
-  # opened at runtime, so there's no link-time dependency. macOS uses the Metal backend.
-  find_path(VULKAN_HEADERS_DIR vulkan/vulkan.h HINTS $ENV{VULKAN_SDK}/include)
-  if(NOT VULKAN_HEADERS_DIR)
-    include(FetchContent)
-    FetchContent_Declare(vulkan_headers
-      GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
-      GIT_TAG v1.3.296
-      GIT_SHALLOW TRUE)
-    FetchContent_MakeAvailable(vulkan_headers)
-    set(VULKAN_HEADERS_DIR ${vulkan_headers_SOURCE_DIR}/include)
-  endif()
+  # Vulkan is loaded at runtime (vulkan-1.dll / libvulkan.so.1) and declared by our own
+  # src/gfx/vk.hpp, so nothing Vulkan is needed to build. macOS uses the Metal backend.
+  # Tributary's own icons and illustrations, drawn in code by tools/artgen at build time
+  add_executable(artgen tools/artgen/artgen.cpp)
+  target_link_libraries(artgen PRIVATE tribgit)
+  set(ART_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  set(ART_NAMES paper-stack empty-no-file-selected multiple-files-selected empty-no-commit
+                welcome-illustration-left-top welcome-illustration-left-bottom)
+  set(ART_PNGS "")
+  foreach(n ${ART_NAMES})
+    list(APPEND ART_PNGS ${ART_DIR}/art/${n}.png)
+  endforeach()
+  add_custom_command(
+    OUTPUT ${ART_DIR}/icons.inc ${ART_PNGS}
+    COMMAND artgen ${ART_DIR}
+    DEPENDS artgen tools/artgen/artgen.cpp tools/fontgen/geom.hpp
+    VERBATIM)
+  add_custom_target(generate_art DEPENDS ${ART_DIR}/icons.inc ${ART_PNGS})
   # Tributary's own typefaces, generated from the designs in tools/fontgen at build time
   add_executable(fontgen tools/fontgen/fontgen.cpp)
   set(FONT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fonts)
@@ -89,7 +95,7 @@ if(TRIBUTARY_BUILD_APP)
     target_link_libraries(Tributary PRIVATE X11::X11)
   endif()
   target_link_libraries(Tributary PRIVATE tribgit ${CMAKE_DL_LIBS})
-  target_include_directories(Tributary PRIVATE src ${VULKAN_HEADERS_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated)
+  target_include_directories(Tributary PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated)
   install(TARGETS Tributary BUNDLE DESTINATION . RUNTIME DESTINATION bin)
   if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/tributary.desktop DESTINATION share/applications)
@@ -106,9 +112,8 @@ if(TRIBUTARY_BUILD_APP)
     ${FONT_DIR}/TributaryMono-Regular.ttf
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/shaders/ui.vert.spv
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/shaders/ui.frag.spv)
-  # GitHub Desktop's empty-state illustrations (MIT), pre-rendered at 2x
-  file(GLOB ILLUSTRATIONS ${CMAKE_CURRENT_SOURCE_DIR}/assets/illustrations/*.png)
-  list(APPEND EMBED_FILES ${ILLUSTRATIONS})
+  # Tributary's own illustrations (and icons, see below), drawn by tools/artgen
+  list(APPEND EMBED_FILES ${ART_PNGS})
   string(REPLACE ";" "|" EMBED_LIST "${EMBED_FILES}")
   add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_data.inc
@@ -117,7 +122,8 @@ if(TRIBUTARY_BUILD_APP)
     DEPENDS ${EMBED_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
     VERBATIM)
   add_custom_target(embed_assets DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_data.inc)
-  add_dependencies(Tributary embed_assets)
+  add_dependencies(Tributary embed_assets generate_art)
+  set_source_files_properties(src/gfx/font.cpp PROPERTIES OBJECT_DEPENDS ${ART_DIR}/icons.inc)
   set_source_files_properties(src/gfx/embedded.cpp PROPERTIES
     OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_data.inc)
 endif()

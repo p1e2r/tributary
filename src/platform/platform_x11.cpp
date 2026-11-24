@@ -19,7 +19,6 @@
 #include <deque>
 #include <mutex>
 
-#include <vulkan/vulkan_xlib.h>
 
 namespace plat {
 namespace {

@@ -742,7 +742,7 @@ void App::draw_dialogs() {
             y += 34;
             y += ui::wrapped_text(ui, {x, y, w, 80}, "A from-scratch C++ reimplementation of GitHub Desktop: its own git engine, Vulkan renderer and UI toolkit. Released under the MIT License.",
                                   FontId::Regular, 12, T.text) + 10;
-            ui::wrapped_text(ui, {x, y, w, 80}, "Set in Tributary Sans and Tributary Mono, its own typefaces. Uses GitHub Octicons (MIT), and GitHub Desktop's theme values and empty-state illustrations (MIT). Not affiliated with GitHub.",
+            ui::wrapped_text(ui, {x, y, w, 80}, "Its typefaces, icons and illustrations are its own, drawn in code. Colours and sizes follow GitHub Desktop's stylesheets (MIT). Not affiliated with GitHub.",
                              FontId::Regular, 12, T.text_muted);
             {
                 using U = UpdateState;
@@ -947,7 +947,7 @@ void App::draw_dialogs() {
                     y += 34;
                 } else {
                     if (!signin_d.status.empty()) { r.draw_text_in(FontId::Regular, 12, {x, y, w, 20}, signin_d.status, T.attention); y += 24; }
-                    if (ui::button(ui, ui.id("signin-browser"), {x, y, w, 36}, "Continue with browser", ui::BtnStyle::Primary, !signin_d.waiting, "mark-github"))
+                    if (ui::button(ui, ui.id("signin-browser"), {x, y, w, 36}, "Continue with browser", ui::BtnStyle::Primary, !signin_d.waiting, "tributary-mark"))
                         start_device_flow();
                     y += 50;
                 }

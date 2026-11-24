@@ -10,7 +10,7 @@
 
 ## Looks like GitHub Desktop
 
-The UI copies GitHub Desktop's design one-to-one. The colors come from Desktop's own stylesheets (`app/styles/_variables.scss` and `themes/_dark.scss`, MIT), compiled with Sass so every value is exact, in light and dark. Sizes and spacing come from the same files: a 50px toolbar with 230px branch and push/pull buttons, a 29px tab bar, 29px file rows, 50px commit rows, 25px buttons and text fields, a 12px base font and 10px spacing. Dialogs, foldouts, the diff gutter, the commit box and the empty states follow Desktop's layout, using Desktop's illustrations.
+The UI copies GitHub Desktop's design one-to-one. The colors come from Desktop's own stylesheets (`app/styles/_variables.scss` and `themes/_dark.scss`, MIT), compiled with Sass so every value is exact, in light and dark. Sizes and spacing come from the same files: a 50px toolbar with 230px branch and push/pull buttons, a 29px tab bar, 29px file rows, 50px commit rows, 25px buttons and text fields, a 12px base font and 10px spacing. Dialogs, foldouts, the diff gutter, the commit box and the empty states follow Desktop's layout.
 
 Windows and Linux get Desktop's File / Edit / View / Repository / Branch / Help menu strip. macOS gets the same menus in the native menu bar, plus Desktop's dark title strip behind the traffic lights. Avatars load from GitHub by commit email, with Desktop's gray placeholder as the fallback.
 
@@ -92,7 +92,15 @@ src/app/       the GitHub Desktop UI, the GitHub editor and its assistant (agent
                the terminal panel, the MCP server (mcp.cpp), the updater (update.cpp)
 ```
 
-All git work runs on a worker thread, and the UI renders from snapshots. On Windows and Linux the renderer uses Vulkan, loaded at runtime (`vulkan-1.dll`, `libvulkan.so.1`), so only Vulkan headers are needed to build. On macOS it draws with Metal directly (`src/gfx/renderer_metal.cpp`), called from C++ through the Objective-C runtime with the shaders written in the Metal Shading Language. There's no MoltenVK.
+All git work runs on a worker thread, and the UI renders from snapshots. On Windows and Linux the renderer uses Vulkan, loaded at runtime (`vulkan-1.dll`, `libvulkan.so.1`) and declared by Tributary's own `src/gfx/vk.hpp`. On macOS it draws with Metal directly (`src/gfx/renderer_metal.cpp`), called from C++ through the Objective-C runtime with the shaders written in the Metal Shading Language. There's no MoltenVK.
+
+### Icons, illustrations and the app icon
+
+`tools/artgen` draws them in C++ at build time: 68 line icons on a 16-unit grid (stroked with round caps and joins and written out as path data), the empty-state illustrations (rendered with its own anti-aliased rasterizer and saved as PNG with Tributary's own deflate), and the app icon (`artgen --app-icon assets/icon` writes the .png, .ico and .icns).
+
+### Vulkan
+
+`src/gfx/vk.hpp` declares the part of Vulkan Tributary uses, written from the specification. No Khronos headers are needed. `tests/vk_layout_check.cpp` checks every struct layout and enum value against the official headers in CI.
 
 ### Fonts
 
@@ -142,4 +150,4 @@ GitHub Actions (`.github/workflows/build.yml`) builds Linux, Windows and macOS (
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The typefaces are MIT too. Octicons, and GitHub Desktop's theme values and empty-state illustrations (in `assets/illustrations`), are MIT © GitHub; see `assets/illustrations/LICENSE-github-desktop.txt`. GitHub's logos and trademarks are not used. Tributary is not affiliated with GitHub.
+MIT. See [LICENSE](LICENSE). That covers everything, including the typefaces, icons and illustrations. The colour and size values follow GitHub Desktop's stylesheets (MIT © GitHub). GitHub's logos and trademarks are not used. Tributary is not affiliated with GitHub.
