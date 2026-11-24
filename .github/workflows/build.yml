@@ -83,7 +83,9 @@ jobs:
           mkdir -p dmg && cp -R build/Tributary.app dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname Tributary -srcfolder dmg -ov -format UDZO tributary-macos-${{ matrix.arch }}.dmg
       - uses: actions/upload-artifact@v4
-        with: { name: tributary-macos-${{ matrix.arch }}, path: "tributary-macos-${{ matrix.arch }}.dmg" }
+        with:
+          name: tributary-macos-${{ matrix.arch }}
+          path: tributary-macos-${{ matrix.arch }}.dmg
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
