@@ -1613,6 +1613,7 @@ void App::frame() {
     }
     draw_dialogs();
     if (picker.open) draw_folder_picker();
+    if (palette.open) draw_palette();
     draw_toasts();
     (void)T;
     ui.end_frame();

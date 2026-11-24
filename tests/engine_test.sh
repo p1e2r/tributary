@@ -107,6 +107,17 @@ check "branch deleted" "! git rev-parse -q --verify refs/heads/feature2 >/dev/nu
 git update-index --index-version 4
 check "read index v4" "[ -z \"\$($T status)\" ]"
 
+# blame (first-parent, like git blame --first-parent) and history search
+B=$(mktemp -d)
+( cd "$B" && git init -q -b main && git config user.name A && git config user.email a@x && git config core.autocrlf false
+  printf 'one\ntwo\nthree\n' > f.txt && git add . && git commit -qm "first" && printf 'one\nTWO\nthree\nfour\n' > f.txt && git commit -qam "second change"
+  git checkout -qb side && printf 'zero\none\nTWO\nthree\nfour\n' > f.txt && git commit -qam "side" && git checkout -q main
+  printf 'one\nTWO\n3\nfour\nfive\n' > f.txt && git commit -qam "third" && git merge -q --no-edit side >/dev/null 2>&1
+  git mv f.txt g.txt && git commit -qm "rename" )
+check "blame matches git (merges, renames)" "[ \"\$(cd $B && $T blame g.txt | tr -d '\r')\" = \"\$(cd $B && git blame --first-parent --porcelain g.txt | grep -E '^[0-9a-f]{40} ' | awk '{print \$1, \$2}')\" ]"
+check "search finds commits by message" "[ \"\$(cd $B && $T search-log CHANGE | tr -d '\r' | awk '{print \$1}')\" = \"\$(cd $B && git log -i --grep=change --format=%h --abbrev=7)\" ]"
+rm -rf "$B"
+
 # local smart-http push/fetch via git http-backend
 echo; echo "$pass passed, $fail failed"
 [ $fail = 0 ]

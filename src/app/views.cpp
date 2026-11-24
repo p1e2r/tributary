@@ -606,6 +606,8 @@ std::vector<AppMenu> App::build_menus() {
         it("Show stashed changes", K::H, C, [this] { tab = 0; load_stash_view(); }, has && std::any_of(rs->stashes.begin(), rs->stashes.end(), [this](auto& s2) { return s2.branch == rs->branch; })),
     }};
     if (mac) view.items.push_back(native("Toggle full screen", -11, K::F, uint8_t(plat::ModCtrl | C)));
+    view.items.push_back(it("Command palette…", K::K, C, [this] { open_palette(); }));
+    view.items.push_back(it("Search history", K::F, uint8_t(C | A), [this] { tab = 1; ui.focus = ui.id("history-q"); }, rs != nullptr));
     view.items.push_back(it("Terminal", K::Grave, plat::ModCtrl, [this] { toggle_terminal(); }));
     view.items.push_back(it("Assistant", K::L, C, [this] { agent.open = !agent.open; if (agent.open) agent_load_models(settings.ai_provider); }, ide.open));
     view.items.push_back(sep());
@@ -695,7 +697,7 @@ std::vector<AppMenu> App::build_menus() {
     return m;
 }
 
-static std::string accel_text(plat::Key k, uint8_t mods) {
+std::string accel_text(plat::Key k, uint8_t mods) {
     if (k == Key::Unknown) return "";
     if (k == Key::Grave) return (mods & plat::ModCtrl ? std::string("Ctrl+") : std::string()) + "`";
     std::string s;
@@ -851,7 +853,30 @@ void App::draw_sidebar(const Rect& rc) {
         draw_changes_list(list);
         draw_commit_box({body.x, list.bottom(), body.w, box_h});
     } else {
-        draw_history_list(body);
+        // search over the whole history: message, author, email or commit id
+        Rect sb{body.x, body.y, body.w, 33};
+        r.line_h(sb.x, sb.right(), sb.bottom() - 1, T.border);
+        ui::TextFieldOpts so;
+        so.placeholder = "Search commits";
+        so.icon = "search";
+        auto hq = ui.id("history-q");
+        bool enter = false;
+        std::string before = history_query;
+        ui::text_field(ui, hq, {sb.x + 5, sb.y + 4, sb.w - 10, 25}, history_query, so, &enter);
+        if (history_query != before) { history_search_at = ui.time; }
+        if (ui.has_focus(hq) && ui.key_pressed(Key::Escape)) { ui.take_key(Key::Escape); history_query.clear(); ui.focus = 0; }
+        if ((enter || (history_search_at > 0 && ui.time - history_search_at > 0.25)) && git::trim(history_query) != history_query_ran) {
+            history_search_at = 0;
+            run_history_search();
+        }
+        if (history_search_at > 0) ui.animate();
+        Rect lb{body.x, sb.bottom(), body.w, body.h - sb.h};
+        if (git::trim(history_query).empty()) {
+            if (!history_query_ran.empty()) { history_query_ran.clear(); history_hits.clear(); }
+            draw_history_list(lb);
+        } else {
+            draw_history_search(lb);
+        }
     }
 }
 
@@ -1026,6 +1051,8 @@ void App::draw_changes_list(const Rect& rc) {
                                          });
                                      }});
                 items.push_back({"", {}, true, true});
+                if (f.change != git::Change::Untracked && f.change != git::Change::Added && rs->head)
+                    items.push_back({"Blame (who changed each line)", [this, p] { open_blame(p, *rs->head); }});
                 items.push_back({"Copy file path", [this, full] { ui.set_clipboard(full); }});
                 items.push_back({"Copy relative file path", [this, p] { ui.set_clipboard(p); }});
                 items.push_back({"Show in file manager", [full] { plat::reveal_in_file_manager(fs::path(git::git_to_path(full)).parent_path().string()); }});
@@ -1068,10 +1095,20 @@ void App::draw_commit_box(const Rect& rc) {
     so.placeholder = merging ? "Merge commit message" : rs->amending ? "Amended commit summary" : "Summary (required)";
     bool submit = false;
     summary_id = ui.id("summary");
-    ui::text_field(ui, ui.id("summary"), {rc.x + 40, y, rc.w - 50, 25}, rs->summary, so, &submit);
+    ui::text_field(ui, ui.id("summary"), {rc.x + 40, y, rc.w - 50 - 30, 25}, rs->summary, so, &submit);
+    // write the message with the assistant's model, from the diff of the selected files
+    {
+        Rect gb{rc.right() - 10 - 25, y, 25, 25};
+        if (ai_msg_running) {
+            if (ui::icon_button(ui, ui.id("ai-msg-stop"), gb, "x", "Stop writing") && ai_msg_cancel) ai_msg_cancel->store(true);
+            ui::spinner(ui, gb.x - 12, gb.y + 12, 5, T.accent);
+        } else if (ui::icon_button(ui, ui.id("ai-msg"), gb, "sparkle-fill", "Write a commit message from the changes (AI)")) {
+            generate_commit_message();
+        }
+    }
     // .length-hint
     if (rs->summary.size() > 72) {
-        Rect lh{rc.right() - 30, y + 2, 16, 21};
+        Rect lh{rc.right() - 60, y + 2, 16, 21};
         r.icon("light-bulb", lh.x + 2, lh.y + 4, 12, T.attention);
         if (ui.hovered(lh)) ui.tooltip(ui.id("summary-long"), lh,
                    "Great commit summaries contain fewer than 50 characters. Place extra information in the description field.");
@@ -1494,6 +1531,7 @@ void App::draw_main(const Rect& rc_in) {
     }
     if (rs->status.rewrite) draw_rewrite_banner(rc.cut_top(44));
     else if ((rs->status.merging || rs->status.has_conflicts()) && tab == 0) draw_conflict_banner(rc.cut_top(44));
+    if (blame.open && blame.repo == rs->path) { draw_blame_view(rc); return; }
     if (tab == 1) { draw_commit_details(rc); return; }
     if (rs->viewing_stash) { draw_stash_view(rc); return; }
     if (rs->files_sel.size() > 1) { draw_multi_selection(rc); return; }
@@ -2198,7 +2236,10 @@ void App::draw_commit_details(const Rect& rc) {
             r.icon(change_icon(f.change), row.right() - 26, row.y + 6, 16, change_color(T, f.change));
             if (rc_click) {
                 std::string p = f.path;
-                open_context({{"Copy file path", [this, p] { ui.set_clipboard(rs->path + "/" + p); }},
+                bool deleted = f.change == git::Change::Deleted;
+                open_context({{"Blame at this commit", [this, p] { open_blame(p, *rs->selected_commit); }, !deleted},
+                              {"", {}, true, true},
+                              {"Copy file path", [this, p] { ui.set_clipboard(rs->path + "/" + p); }},
                               {"Copy relative file path", [this, p] { ui.set_clipboard(p); }},
                               {"View on GitHub", [this, p] { plat::open_url(github_url() + "/blob/" + rs->selected_commit->hex() + "/" + p); }, rs->github.has_value()}});
             }

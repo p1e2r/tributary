@@ -718,6 +718,104 @@ void Repository::add_to_gitignore(const std::string& pattern) {
 }
 
 // ================================================================ history
+static std::vector<std::string_view> blame_lines(const std::string& s) {
+    std::vector<std::string_view> out;
+    size_t pos = 0;
+    while (pos < s.size()) {
+        size_t nl = s.find('\n', pos);
+        if (nl == std::string::npos) { out.push_back(std::string_view(s).substr(pos)); break; }
+        out.push_back(std::string_view(s).substr(pos, nl - pos));
+        pos = nl + 1;
+    }
+    return out;
+}
+
+std::vector<BlameLine> Repository::blame(const std::string& path, const ObjectId& start, std::map<ObjectId, Commit>* commits) {
+    ObjectId c = start;
+    Commit cc = odb_->read_commit(c);
+    if (commits) (*commits)[c] = cc;
+    auto e = tree_entry(cc.tree, path);
+    if (!e) throw Error(path + " doesn't exist in that commit");
+    std::string final_text = blob(e->id);
+    if (final_text.find('\0') != std::string::npos) throw Error(path + " is a binary file");
+    auto final_lines = blame_lines(final_text);
+    std::vector<BlameLine> out(final_lines.size());
+    for (size_t i = 0; i < out.size(); i++) out[i].text = std::string(final_lines[i]);
+    // map[i]: which final line the i-th line of the version we're looking at is (-1: already attributed)
+    std::vector<int> map(final_lines.size());
+    for (size_t i = 0; i < map.size(); i++) map[i] = int(i);
+    std::string cur_text = final_text;
+    ObjectId cur_blob = e->id;
+    std::string cur_path = path;
+    size_t remaining = map.size();
+    auto assign_all = [&](const ObjectId& who) {
+        for (size_t i = 0; i < map.size(); i++)
+            if (map[i] >= 0) { out[size_t(map[i])].commit = who; out[size_t(map[i])].line = int(i) + 1; }
+    };
+    while (remaining) {
+        if (cc.parents.empty()) { assign_all(c); break; }
+        ObjectId p = cc.parents[0];
+        Commit pc = odb_->read_commit(p);
+        if (commits) (*commits)[p] = pc;
+        auto pe = tree_entry(pc.tree, cur_path);
+        if (!pe) {
+            // renamed here? follow it when the parent has the same content under another name
+            std::map<std::string, FlatEntry> flat;
+            flatten_tree(*odb_, pc.tree, "", flat);
+            for (auto& [p2, fe] : flat)
+                if (fe.id == cur_blob && !tree_entry(cc.tree, p2)) { cur_path = p2; pe = fe; break; }
+            if (!pe) { assign_all(c); break; }  // the file was added here
+        }
+        if (pe->id != cur_blob) {
+            std::string ptext = blob(pe->id);
+            auto A = blame_lines(ptext), B = blame_lines(cur_text);
+            std::vector<int> next(A.size(), -1);
+            for (auto& ed : myers(A, B)) {
+                if (ed.op == Edit::Keep) next[size_t(ed.a)] = map[size_t(ed.b)];
+                else if (ed.op == Edit::Ins && map[size_t(ed.b)] >= 0) {
+                    out[size_t(map[size_t(ed.b)])].commit = c;
+                    out[size_t(map[size_t(ed.b)])].line = ed.b + 1;
+                    remaining--;
+                }
+            }
+            map = std::move(next);
+            cur_text = std::move(ptext);
+            cur_blob = pe->id;
+        }
+        c = p;
+        cc = std::move(pc);
+    }
+    return out;
+}
+
+std::vector<CommitInfo> Repository::search_log(const ObjectId& start, const std::string& query, size_t max, size_t scan_limit) {
+    std::vector<CommitInfo> out;
+    std::string q = to_lower(trim(query));
+    if (q.empty()) return out;
+    bool hexish = q.size() >= 4 && q.find_first_not_of("0123456789abcdef") == std::string::npos;
+    struct Item { int64_t t; ObjectId id; bool operator<(const Item& o) const { return t < o.t; } };
+    std::priority_queue<Item> pq;
+    std::unordered_set<ObjectId, ObjectIdHash> seen;
+    auto push = [&](const ObjectId& id) {
+        if (!seen.insert(id).second) return;
+        auto o = odb_->try_read(id);
+        if (!o || o->type != ObjType::Commit) return;
+        pq.push({Commit::parse(o->data).committer.time, id});
+    };
+    push(start);
+    size_t scanned = 0;
+    while (!pq.empty() && out.size() < max && scanned++ < scan_limit) {
+        auto it = pq.top();
+        pq.pop();
+        auto c = odb_->read_commit(it.id);
+        for (auto& p : c.parents) push(p);
+        bool hit = (hexish && it.id.hex().rfind(q, 0) == 0) || to_lower(c.message).find(q) != std::string::npos ||
+                   to_lower(c.author.name).find(q) != std::string::npos || to_lower(c.author.email).find(q) != std::string::npos;
+        if (hit) out.push_back({it.id, std::move(c)});
+    }
+    return out;
+}
+
 std::vector<CommitInfo> Repository::log(const ObjectId& start, size_t max, size_t skip, const std::string& filter) {
     std::vector<CommitInfo> out;
     struct Item { int64_t t; ObjectId id; bool operator<(const Item& o) const { return t < o.t; } };

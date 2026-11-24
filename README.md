@@ -68,6 +68,15 @@ The GitHub editor has an **Assistant** panel (the toolbar button, or Ctrl/⌘+L)
 
 Tools: `list_repositories`, `status`, `diff`, `log`, `show_commit`, `read_file`, `branches`, `create_branch`, `checkout`, `commit`, `discard_changes`, `fetch`, `pull`, `push`, `merge`, `stash`, `stash_pop`, `list_pull_requests`, `create_pull_request`. Read-only and destructive tools are annotated so clients can ask before running them. Without `repository`, tools use `--repo <path>`, then the working directory, then the repository selected in Tributary. `GITHUB_TOKEN` works if you haven't signed in.
 
+## Extras
+
+These go beyond what GitHub Desktop has:
+
+- **Command palette** (Ctrl/⌘+K): fuzzy search over every menu command, every branch (switch or check out) and every repository (open).
+- **Search history**: the box at the top of History searches the whole history, not just loaded commits. It matches messages, authors, emails and commit ids (Ctrl/⌘+Alt+F).
+- **Blame**: right-click a file in Changes (**Blame**) or in a commit (**Blame at this commit**) to see who last changed each line, grouped by commit. It follows renames, like `git blame --first-parent`. Click a commit to open it in History.
+- **AI commit messages**: the ✦ button next to the summary writes the summary and description from the diff of the files you've selected, streamed in with the model you picked for the assistant (Claude, GPT, Gemini or Ollama).
+
 ## Folder picker on Linux
 
 On Linux, the **Choose…** buttons open Tributary's own folder chooser, with an editable path, up/home buttons, keyboard navigation and hidden folders on request. It no longer shells out to zenity or kdialog. Windows and macOS use the system's folder dialog, as GitHub Desktop does.

@@ -58,6 +58,13 @@ struct CommitInfo {
     Commit commit;
 };
 
+// One line of `blame`: the commit that last changed it.
+struct BlameLine {
+    ObjectId commit;
+    std::string text;
+    int line = 0;  // 1-based line number in that commit's version of the file
+};
+
 struct BranchInfo {
     std::string name;       // short name: "main", "origin/main"
     std::string full;       // refs/heads/main
@@ -161,6 +168,10 @@ public:
     // history
     std::vector<CommitInfo> log(const ObjectId& start, size_t max, size_t skip = 0,
                                 const std::string& path_filter = "");
+    // Who last changed each line of `path` as of `start` (first-parent history, like `git blame --first-parent`).
+    std::vector<BlameLine> blame(const std::string& path, const ObjectId& start, std::map<ObjectId, Commit>* commits = nullptr);
+    // Commits reachable from `start` whose message, author, or id matches `query` (case-insensitive).
+    std::vector<CommitInfo> search_log(const ObjectId& start, const std::string& query, size_t max = 500, size_t scan_limit = 200000);
     std::vector<ChangedFile> commit_changes(const ObjectId& commit);
     FileDiff commit_file_diff(const ChangedFile& f, int context = 3, bool ignore_ws = false);
     std::vector<ChangedFile> tree_changes(const std::optional<ObjectId>& old_tree, const ObjectId& new_tree);

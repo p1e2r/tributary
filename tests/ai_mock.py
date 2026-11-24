@@ -85,6 +85,9 @@ class H(BaseHTTPRequestHandler):
             f.write(json.dumps({"method": "POST", "path": self.path, "headers": dict(self.headers), "body": json.loads(body)}) + "\n")
         compact = json.dumps(json.loads(body), separators=(",", ":"))
         text, tool, args = plan(step(compact))
+        if '"tools"' not in compact and '"functionDeclarations"' not in compact:  # plain chat: a commit message
+            text, tool, args = ("Show relative fetch times in the toolbar\n\nReplace the absolute timestamp with \"2 hours ago\" style text, "
+                                "which is easier to read at a glance.", None, None)
         p = self.path
         if p.startswith("/v1/messages"):
             self.start_stream()

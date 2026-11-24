@@ -81,7 +81,7 @@ if(TRIBUTARY_BUILD_APP)
   set(APP_SOURCES
     src/gfx/font.cpp src/gfx/renderer.cpp src/gfx/embedded.cpp src/gfx/image.cpp
     src/ui/ui.cpp src/ui/widgets.cpp src/ui/code_editor.cpp src/ui/terminal.cpp
-    src/app/main.cpp src/app/app.cpp src/app/views.cpp src/app/dialogs.cpp src/app/ide.cpp src/app/agent.cpp src/app/mcp.cpp src/app/update.cpp src/platform/common.cpp)
+    src/app/main.cpp src/app/app.cpp src/app/views.cpp src/app/dialogs.cpp src/app/ide.cpp src/app/agent.cpp src/app/mcp.cpp src/app/update.cpp src/app/extras.cpp src/platform/common.cpp)
   if(WIN32)
     list(APPEND APP_SOURCES src/platform/platform_win32.cpp src/platform/pty_win32.cpp src/app/tributary.rc src/app/tributary.manifest)
     add_executable(Tributary WIN32 ${APP_SOURCES})

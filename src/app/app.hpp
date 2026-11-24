@@ -178,6 +178,8 @@ enum class Dialog {
     IdeOpen, IdeSubmit, IdeNewFile, IdeConfirmDiscard
 };
 
+std::string accel_text(plat::Key k, uint8_t mods);  // "Ctrl+Shift+P" / "⇧⌘P"
+
 struct AppMenuItem {
     std::string label;
     plat::Key key = plat::Key::Unknown;  // accelerator
@@ -498,6 +500,36 @@ public:
         std::set<int> models_loading;
         float scroll_to_bottom = 1;
     } agent;
+    // ---- command palette (Ctrl/Cmd+Shift+P)
+    struct Palette {
+        bool open = false;
+        std::string query;
+        int sel = 0;
+        float mx = -1, my = -1;
+    } palette;
+    void open_palette();
+    void draw_palette();
+    // ---- history search
+    std::string history_query, history_query_ran;
+    double history_search_at = 0;
+    std::vector<git::CommitInfo> history_hits;
+    bool history_searching = false;
+    void run_history_search();
+    void draw_history_search(const Rect& rc);
+    // ---- blame
+    struct BlameState {
+        bool open = false, loading = false;
+        std::string repo, path, error;
+        ObjectId at;
+        std::vector<git::BlameLine> lines;
+        std::map<ObjectId, git::Commit> commits;
+    } blame;
+    void open_blame(const std::string& path, const ObjectId& at);
+    void draw_blame_view(const Rect& rc);
+    // ---- AI commit messages
+    bool ai_msg_running = false;
+    std::shared_ptr<std::atomic<bool>> ai_msg_cancel;
+    void generate_commit_message();
     // Linux folder chooser, drawn by Tributary itself (no zenity/kdialog)
     struct FolderPicker {
         bool open = false, hidden = false;

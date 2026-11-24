@@ -125,6 +125,14 @@ int main(int argc, char** argv) {
             if (!h) return 0;
             for (auto& c : repo.log(*h, argc > 2 ? std::stoul(argv[2]) : 20))
                 std::printf("%s %s\n", c.id.short_hex().c_str(), c.commit.summary().c_str());
+        } else if (cmd == "blame") {  // prints "<full sha> <line>" per line, like git blame --porcelain's first fields
+            auto h = repo.head();
+            if (!h) return 1;
+            for (auto& l : repo.blame(argv[2], *h)) std::printf("%s %d\n", l.commit.hex().c_str(), l.line);
+        } else if (cmd == "search-log") {
+            auto h = repo.head();
+            if (!h) return 0;
+            for (auto& c : repo.search_log(*h, argv[2])) std::printf("%s %s\n", c.id.short_hex().c_str(), c.commit.summary().c_str());
         } else if (cmd == "branch") {
             if (argc > 2) repo.create_branch(argv[2], std::nullopt, false);
             else for (auto& b : repo.branches())
