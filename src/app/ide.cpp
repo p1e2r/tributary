@@ -488,7 +488,7 @@ void App::draw_ide(const Rect& rc) {
     }
     float sw = std::clamp(settings.sidebar_width, 220.f, std::max(260.f, rc.w * 0.5f));
     Rect side{rc.x, rc.y, sw, rc.h};
-    Rect main{rc.x + sw + 1, rc.y, rc.w - sw - 1, rc.h};
+    Rect main{rc.x + sw + 1, rc.y, rc.w - sw - 1, rc.h - panel_inset_};
     r.line_v(side.right(), side.y, side.bottom(), T.border);
     auto changes = ide_changes();
     int nt = ui::tabs(ui, ui.id("ide-side-tabs"), {side.x, side.y, side.w, 29}, {"Files", "Changes"}, ide.side_tab,
@@ -514,10 +514,14 @@ void App::draw_ide(const Rect& rc) {
             }
         }
         std::string extra = !f.renamed_from.empty() ? "Renamed from " + f.renamed_from : "";
+        r.push_clip(main);
         draw_diff(main, ide.change_diff, false, ide.change_sel, extra);
+        r.pop_clip();
         return;
     }
+    r.push_clip(main);
     draw_ide_editor(main);
+    r.pop_clip();
 }
 
 void App::draw_ide_tree(const Rect& rc) {

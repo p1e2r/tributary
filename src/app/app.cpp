@@ -1416,6 +1416,99 @@ void App::on_event(const plat::Event& ev) {
     ui.feed(e);
 }
 
+// ================================================================ terminal panel
+std::string App::terminal_cwd() {
+    if (ide.open) {
+        for (auto& e : repos) {
+            try {
+                auto r2 = git::Repository::open(git::git_to_path(e.path));
+                for (auto& rm : r2.remotes())
+                    if (auto gh2 = gh::parse_github_remote(rm.url, account.host()); gh2 && gh2->first == ide.owner && gh2->second == ide.repo) return e.path;
+            } catch (...) {}
+        }
+        return settings.clone_dir;
+    }
+    return rs ? rs->path : git::path_to_git(git::home_dir());
+}
+
+void App::new_terminal() {
+    auto s = std::make_unique<ui::TerminalSession>();
+    s->cwd = git::git_to_path(terminal_cwd()).string();
+    auto sh = plat::default_shell();
+    std::string base = sh.empty() ? "shell" : sh[0];
+    auto sl = base.find_last_of("/\\");
+    if (sl != std::string::npos) base = base.substr(sl + 1);
+    if (base.size() > 4 && base.substr(base.size() - 4) == ".exe") base.resize(base.size() - 4);
+    s->name = base;
+    term_panel.tabs.push_back(std::move(s));
+    term_panel.active = int(term_panel.tabs.size()) - 1;
+    term_panel.open = true;
+}
+
+void App::toggle_terminal() {
+    if (!term_panel.open && term_panel.tabs.empty()) new_terminal();
+    else term_panel.open = !term_panel.open;
+    if (term_panel.open) ui.set_focus(ui.id("term", term_panel.active));
+}
+
+Rect App::draw_terminal_panel(const Rect& content) {
+    auto& T = ui.theme;
+    if (term_panel.tabs.empty()) { term_panel.open = false; return content; }
+    float h = std::clamp(term_panel.height, 120.f, std::max(140.f, content.h - 120));
+    Rect panel{content.x, content.bottom() - h, content.w, h};
+    // resize by dragging the top edge
+    Rect grip{panel.x, panel.y - 3, panel.w, 6};
+    auto gid = ui.id("term-grip");
+    if (ui.hovered(grip)) ui.set_cursor(plat::Cursor::ResizeV);
+    if (ui.pressed(gid, grip)) {}
+    if (ui.is_active(gid)) {
+        ui.set_cursor(plat::Cursor::ResizeV);
+        if (ui.mouse_down[0]) term_panel.height = std::clamp(content.bottom() - ui.my, 120.f, content.h - 120);
+        else ui.clear_active();
+    }
+    r.rect(panel, T.bg);
+    r.line_h(panel.x, panel.right(), panel.y, T.border);
+    // header: tabs, new, kill, close (like VS Code's TERMINAL panel)
+    Rect head{panel.x, panel.y + 1, panel.w, 30};
+    r.rect(head, T.bg_subtle);
+    r.line_h(head.x, head.right(), head.bottom(), T.border);
+    float x = head.x + 10;
+    x += r.draw_text_in(FontId::Bold, 11, {x, head.y, 100, head.h}, "TERMINAL", T.text_muted) + 14;
+    int to_close = -1;
+    for (size_t i = 0; i < term_panel.tabs.size(); i++) {
+        auto& s = *term_panel.tabs[i];
+        std::string label = s.term.title().empty() ? s.name : s.term.title();
+        if (label.size() > 28) label = label.substr(0, 27) + "…";
+        float w = ui.text_w(FontId::Regular, 12, label) + 50;
+        Rect tr{x, head.y + 3, w, head.h - 6};
+        bool act = int(i) == term_panel.active;
+        if (act) r.rect(tr, T.bg, 5, 1, T.border);
+        else if (ui.hovered(tr)) r.rect(tr, T.row_hover, 5);
+        r.icon("terminal", tr.x + 7, tr.y + 4, 16, s.exited ? T.text_muted : T.text);
+        r.draw_text_in(FontId::Regular, 12, {tr.x + 28, tr.y, w - 46, tr.h}, label, s.exited ? T.text_muted : T.text);
+        Rect xr{tr.right() - 20, tr.y + 4, 16, 16};
+        if (act || ui.hovered(tr)) r.icon("x", xr.x, xr.y, 16, ui.hovered(xr) ? T.text : T.text_muted);
+        if (ui.clicked(ui.id("term-x", int64_t(i)), xr)) to_close = int(i);
+        else if (ui.clicked(ui.id("term-tab", int64_t(i)), tr)) { term_panel.active = int(i); ui.set_focus(ui.id("term", int64_t(i))); }
+        x += w + 4;
+    }
+    Rect plus{x + 2, head.y + 4, 22, 22};
+    if (ui::icon_button(ui, ui.id("term-new"), plus, "plus", "New terminal")) { new_terminal(); ui.set_focus(ui.id("term", term_panel.active)); }
+    Rect closep{head.right() - 30, head.y + 4, 22, 22};
+    if (ui::icon_button(ui, ui.id("term-hide"), closep, "chevron-down", "Hide panel (Ctrl+`)")) term_panel.open = false;
+    if (to_close >= 0) {
+        term_panel.tabs.erase(term_panel.tabs.begin() + to_close);
+        term_panel.active = std::clamp(term_panel.active - (to_close < term_panel.active ? 1 : 0), 0, std::max(0, int(term_panel.tabs.size()) - 1));
+        if (term_panel.tabs.empty()) { term_panel.open = false; return content; }
+    }
+    Rect body{panel.x, head.bottom() + 1, panel.w, panel.bottom() - head.bottom() - 1};
+    auto& s = *term_panel.tabs[size_t(term_panel.active)];
+    auto id = ui.id("term", term_panel.active);
+    terminal_focus_id_ = id;
+    ui::terminal_view(ui, id, body, s, [this] { win.wake(); });
+    return {content.x, content.y, content.w, panel.y - content.y};
+}
+
 void App::frame() {
     jobs.drain();
     if (!r.begin_frame(ui.theme.bg)) {
@@ -1450,6 +1543,16 @@ void App::frame() {
     Rect strip{0, 0, W, top};
     Rect toolbar{0, top, W, 50};
     Rect body{0, top + 50, W, H - top - 50};
+    // the terminal panel spans the content area, like VS Code's panel
+    terminal_focus_id_ = 0;
+    if (term_panel.open && (ide.open || (rs && !repos.empty()))) {
+        float sw = std::clamp(settings.sidebar_width, 220.f, std::max(260.f, W * 0.5f));
+        Rect content{sw + 1, body.y, W - sw - 1, body.h};
+        Rect above = draw_terminal_panel(content);
+        panel_inset_ = content.h - above.h;
+    } else {
+        panel_inset_ = 0;
+    }
     if (ide.open) {
         draw_ide(body);
     } else if (repos.empty() || !rs) {
@@ -1457,12 +1560,14 @@ void App::frame() {
     } else {
         float sw = std::clamp(settings.sidebar_width, 220.f, std::max(260.f, W * 0.5f));
         Rect side{0, body.y, sw, body.h};
-        Rect main{sw + 1, body.y, W - sw - 1, body.h};
+        Rect main{sw + 1, body.y, W - sw - 1, body.h - panel_inset_};
         draw_sidebar(side);
         float nw = ui::splitter(ui, ui.id("sidebar-split"), {sw, body.y, 1, body.h}, sw, 220, std::max(260.f, W * 0.5f));
         if (nw != sw) { settings.sidebar_width = nw; }
         if (ui.mouse_released[0] && nw != 300) save_state();
+        r.push_clip(main);
         draw_main(main);
+        r.pop_clip();
     }
     if (ide.open) {
         draw_ide_toolbar(toolbar);

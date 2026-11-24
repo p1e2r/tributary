@@ -606,6 +606,7 @@ std::vector<AppMenu> App::build_menus() {
         it("Show stashed changes", K::H, C, [this] { tab = 0; load_stash_view(); }, has && std::any_of(rs->stashes.begin(), rs->stashes.end(), [this](auto& s2) { return s2.branch == rs->branch; })),
     }};
     if (mac) view.items.push_back(native("Toggle full screen", -11, K::F, uint8_t(plat::ModCtrl | C)));
+    view.items.push_back(it("Terminal", K::Grave, plat::ModCtrl, [this] { toggle_terminal(); }));
     view.items.push_back(sep());
     view.items.push_back(it("Reset zoom", K::Num0, C, [this] { set_zoom(1.0f); }));
     view.items.push_back(it("Zoom in", K::Equals, C, [this] { set_zoom(settings.zoom + 0.1f); }));
@@ -694,6 +695,7 @@ std::vector<AppMenu> App::build_menus() {
 
 static std::string accel_text(plat::Key k, uint8_t mods) {
     if (k == Key::Unknown) return "";
+    if (k == Key::Grave) return (mods & plat::ModCtrl ? std::string("Ctrl+") : std::string()) + "`";
     std::string s;
     if (mods & plat::ModCtrl) s += "Ctrl+";
     if (mods & plat::ModAlt) s += "Alt+";
@@ -712,6 +714,7 @@ static std::string accel_text(plat::Key k, uint8_t mods) {
 
 static std::string mac_key_equiv(plat::Key k) {
     switch (k) {
+        case Key::Grave: return "`";
         case Key::Comma: return ",";
         case Key::Equals: return "=";
         case Key::Minus: return "-";
@@ -2371,6 +2374,8 @@ void App::draw_welcome(const Rect& rc) {
 // ================================================================ shortcuts & toasts
 void App::handle_shortcuts() {
     if (ui.input_layer() >= 60 || dialog != Dialog::None) return;
+    if (ui.take_key(Key::Grave, plat::ModCtrl)) { toggle_terminal(); return; }
+    if (terminal_focus_id_ && ui.focus == terminal_focus_id_) return;
     // every menu accelerator works as a shortcut (Edit's clipboard items are handled by text fields)
     for (auto& mm : build_menus()) {
         if (mm.title == "Edit" || mm.title == "Tributary" || mm.title == "Window") continue;

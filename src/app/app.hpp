@@ -17,6 +17,7 @@
 #include "../gfx/image.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/code_editor.hpp"
+#include "../ui/terminal.hpp"
 
 namespace app {
 
@@ -450,6 +451,19 @@ public:
     void sync_native_menu();
     void run_menu_command(int command);
     std::vector<AppMenu> menus_;
+    // VS Code-style terminal panel (Ctrl+`)
+    struct TerminalPanel {
+        bool open = false;
+        float height = 260;
+        std::vector<std::unique_ptr<ui::TerminalSession>> tabs;
+        int active = 0;
+    } term_panel;
+    ui::Id terminal_focus_id_ = 0;
+    float panel_inset_ = 0;  // height the terminal panel takes from the content area
+    std::string terminal_cwd();
+    void toggle_terminal();
+    void new_terminal();
+    Rect draw_terminal_panel(const Rect& content);  // returns what's left above the panel
     IdeState ide;
     uint64_t ide_generation_ = 0;
     struct { std::string branch, title, body; bool draft = false, submitting = false; std::string progress, error; } ide_pr_d;

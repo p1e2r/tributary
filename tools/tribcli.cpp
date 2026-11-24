@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Developer CLI over the Tributary git engine (used by the test suite).
 #include <cstdio>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 #include <iostream>
 
 #include "../src/git/repo.hpp"
@@ -19,6 +23,9 @@ static void usage() {
 }
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    _setmode(_fileno(stdout), _O_BINARY);  // byte-exact output like git's
+#endif
     if (argc < 2) { usage(); return 1; }
     std::string cmd = argv[1];
     try {
