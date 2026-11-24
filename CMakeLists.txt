@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
-project(Tributary VERSION 0.1.0 LANGUAGES CXX)
+project(Tributary VERSION 0.2.0 LANGUAGES CXX)
+add_compile_definitions(TRIBUTARY_VERSION="${PROJECT_VERSION}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,8 +15,8 @@ option(TRIBUTARY_BUILD_TOOLS "Build developer CLI and tests" ON)
 # ---------------------------------------------------------------- git engine
 add_library(tribgit STATIC
   src/git/core.cpp src/git/zlib.cpp src/git/objects.cpp src/git/refs.cpp
-  src/git/index.cpp src/git/diff.cpp src/git/repo.cpp src/git/transport.cpp src/git/process.cpp src/git/lfs.cpp
-  src/net/http.cpp src/net/json.cpp src/net/github.cpp
+  src/git/index.cpp src/git/diff.cpp src/git/repo.cpp src/git/transport.cpp src/git/process.cpp src/git/lfs.cpp src/git/archive.cpp
+  src/net/http.cpp src/net/json.cpp src/net/github.cpp src/net/ai.cpp
   src/net/tls_openssl.cpp src/net/tls_securetransport.cpp src/net/tls_schannel.cpp)
 target_include_directories(tribgit PUBLIC src)
 if(WIN32)
@@ -55,7 +56,7 @@ if(TRIBUTARY_BUILD_APP)
   set(APP_SOURCES
     src/gfx/font.cpp src/gfx/renderer.cpp src/gfx/embedded.cpp src/gfx/image.cpp
     src/ui/ui.cpp src/ui/widgets.cpp src/ui/code_editor.cpp src/ui/terminal.cpp
-    src/app/main.cpp src/app/app.cpp src/app/views.cpp src/app/dialogs.cpp src/app/ide.cpp src/platform/common.cpp)
+    src/app/main.cpp src/app/app.cpp src/app/views.cpp src/app/dialogs.cpp src/app/ide.cpp src/app/agent.cpp src/app/mcp.cpp src/app/update.cpp src/platform/common.cpp)
   if(WIN32)
     list(APPEND APP_SOURCES src/platform/platform_win32.cpp src/platform/pty_win32.cpp src/app/tributary.rc src/app/tributary.manifest)
     add_executable(Tributary WIN32 ${APP_SOURCES})

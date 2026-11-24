@@ -107,6 +107,8 @@ Bytes zlib_inflate(const uint8_t* in, size_t in_len, size_t* consumed = nullptr,
 inline Bytes zlib_inflate(std::string_view in) {
     return zlib_inflate(reinterpret_cast<const uint8_t*>(in.data()), in.size());
 }
+// Inflate raw DEFLATE data (gzip and zip members).
+Bytes raw_inflate(const uint8_t* in, size_t in_len, size_t* consumed = nullptr, size_t size_hint = 0);
 // Deflate into a zlib stream (LZ77 + Huffman, our own encoder).
 Bytes zlib_deflate(std::string_view in, int level = 6);
 

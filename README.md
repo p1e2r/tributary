@@ -41,6 +41,37 @@ These follow GitHub Desktop's workflow.
 
 `tests/github_mock.py` is an in-memory mock of the GitHub endpoints the editor uses, for trying it without a network.
 
+## Terminal
+
+**View → Terminal** (Ctrl+`) opens a terminal panel under the main view, like VS Code's, in the current repository (or in a scratch folder while you edit on GitHub). It runs your shell on a real pseudo-terminal (PTY on macOS and Linux, ConPTY on Windows) through Tributary's own xterm emulator: 256 colors and truecolor, the alternate screen (vim, htop, less), scroll regions, bracketed paste, mouse reporting, line drawing, scrollback, selection and copy. You can open several terminals and switch between them.
+
+## Assistant
+
+The GitHub editor has an **Assistant** panel (the toolbar button, or Ctrl/⌘+L). It's a coding agent that can list, read, search, edit, create and delete the repository's files. Its changes land in the same **Changes** tab as yours and go out in the same pull request. It knows which file you have open, where your cursor is, and what you've selected.
+
+- **Claude** (Anthropic), **GPT** (OpenAI or any OpenAI-compatible server), **Gemini** (Google) with your own API keys, or **Ollama** for local models. Set them up in **Settings → AI**. Keys go into the system keychain (Keychain, Windows Credential Manager, or a 0600 file on Linux), never into the settings file. Each provider's base URL can be changed, so proxies and self-hosted gateways work.
+- The model picker lists the models your key can use.
+- Replies stream in. Before each change the assistant shows a diff and asks first (**Allow**, **Allow all in chat**, **Decline**). You can turn the asking off in Settings. **Stop** cancels a run.
+- It's written from scratch against each API's own streaming format: Anthropic Messages SSE, OpenAI Chat Completions SSE, Gemini `streamGenerateContent` SSE (thought signatures are passed back), and Ollama's NDJSON `/api/chat`. There's no SDK. `tribcli ai <provider> <model> <prompt>` runs the same tool loop on the files in the current folder.
+
+## MCP server
+
+`Tributary --mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio. It gives AI apps (Claude Desktop, Claude Code, VS Code, Cursor…) Tributary's git engine, plus the repositories and GitHub sign-in you've set up in Tributary. **Settings → Integrations** shows the exact snippet to paste:
+
+```json
+{
+  "mcpServers": {
+    "tributary": { "command": "/Applications/Tributary.app/Contents/MacOS/Tributary", "args": ["--mcp"] }
+  }
+}
+```
+
+Tools: `list_repositories`, `status`, `diff`, `log`, `show_commit`, `read_file`, `branches`, `create_branch`, `checkout`, `commit`, `discard_changes`, `fetch`, `pull`, `push`, `merge`, `stash`, `stash_pop`, `list_pull_requests`, `create_pull_request`. Read-only and destructive tools are annotated so clients can ask before running them. Without `repository`, tools use `--repo <path>`, then the working directory, then the repository selected in Tributary. `GITHUB_TOKEN` works if you haven't signed in.
+
+## Updates
+
+Tributary checks [GitHub Releases](https://github.com/p1e2r/tributary/releases) when it starts and every 6 hours. When there's a newer version, a banner offers **Update and restart**. One click downloads the build for your OS and CPU, unpacks it with Tributary's own gzip/tar/zip reader, swaps it in for the running copy (the `.app` bundle on macOS, the folder on Windows and Linux), and restarts. **Help → Check for updates…** checks right away. Automatic checks can be turned off in **Settings → Advanced**.
+
 ## Architecture
 
 ```
@@ -56,12 +87,14 @@ src/gfx/       Vulkan renderer (instanced SDF quads, glyph atlas, scissor batche
                TrueType parser + coverage rasterizer + GPOS kerning, SVG path rasterizer
 src/ui/        immediate-mode UI toolkit: text editing, scroll views, popups, modals
 src/platform/  Win32, Cocoa (pure C++ through the Objective-C runtime), X11
-src/app/       the GitHub Desktop UI
+src/net/ai.cpp streaming chat + tool calling for Anthropic, OpenAI, Gemini, Ollama
+src/app/       the GitHub Desktop UI, the GitHub editor and its assistant (agent.cpp),
+               the terminal panel, the MCP server (mcp.cpp), the updater (update.cpp)
 ```
 
 All git work runs on a worker thread, and the UI renders from snapshots. Vulkan is loaded at runtime: `vulkan-1.dll` on Windows, `libvulkan.so.1` on Linux, and the bundled `libMoltenVK.dylib` on macOS. Only Vulkan headers are needed to build.
 
-The engine is tested against real git: `tests/engine_test.sh` (40 checks) and `tests/transport_test.sh` (10 checks against `git http-backend`) verify that git sees exactly the commits, trees, index, stashes and packs Tributary writes, and vice versa (`git fsck --strict` stays clean).
+The engine is tested against real git: `tests/engine_test.sh` (40 checks) and `tests/transport_test.sh` (10 checks against `git http-backend`) verify that git sees exactly the commits, trees, index, stashes and packs Tributary writes, and vice versa (`git fsck --strict` stays clean). `tests/ai_mcp_test.sh` runs the assistant against mocks of all four providers' streaming APIs, talks to the MCP server over stdio, and round-trips the updater's archive formats. CI runs every suite on Linux, macOS (arm64 and Intel) and Windows.
 
 ## Building
 

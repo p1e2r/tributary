@@ -626,7 +626,7 @@ bool menu_item(Context& c, Id id, const Rect& r, const std::string& label, const
     Color fg = hov ? Color::hex(0xffffff) : enabled ? T.text : T.text_muted.with_alpha(0.6f);
     float x = r.x + 12;
     if (checked) c.r.icon("check", x, r.y + (r.h - 16) / 2, 16, fg);
-    if (icon) { c.r.icon(icon, x, r.y + (r.h - 16) / 2, 16, hov ? fg : enabled ? T.text_muted : fg); }
+    if (icon && *icon) { c.r.icon(icon, x, r.y + (r.h - 16) / 2, 16, hov ? fg : enabled ? T.text_muted : fg); }
     if (icon || checked) x += 24;
     c.r.draw_text_in(FontId::Regular, 12, {x, r.y, r.w - (x - r.x) - (shortcut.empty() ? 12 : 100), r.h}, label, fg);
     if (!shortcut.empty()) c.r.draw_text_in(FontId::Regular, 12, {r.right() - 100, r.y, 88, r.h}, shortcut, hov ? fg : T.text_muted, Align::Right);

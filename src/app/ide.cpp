@@ -448,6 +448,20 @@ void App::draw_ide_toolbar(const Rect& rc) {
     r.icon("x", close_r.x + 14, close_r.y + (close_r.h - 16) / 2, 16, T.toolbar_text);
     r.draw_text_in(FontId::Bold, 12, {close_r.x + 38, close_r.y, close_r.w - 40, close_r.h}, "Close editor", T.toolbar_text);
     if (ui.clicked(ui.id("ide-close"), close_r)) ide_guard([this] { ide = IdeState{}; });
+    // assistant toggle, left of Close editor
+    Rect ai_r{close_r.x - 130, rc.y, 130, rc.h - 1};
+    bool ah = ui.hovered(ai_r);
+    if (agent.open) r.rect(ai_r, T.bg);
+    else if (ah) { r.rect(ai_r, T.toolbar_hover); }
+    if (ah) ui.set_cursor(plat::Cursor::Hand);
+    r.line_v(ai_r.x, ai_r.y, ai_r.bottom(), T.toolbar_border);
+    Color afg = agent.open ? T.text : T.toolbar_text;
+    r.icon("sparkle-fill", ai_r.x + 14, ai_r.y + (ai_r.h - 16) / 2, 16, agent.open ? T.accent_emphasis : afg);
+    r.draw_text_in(FontId::Bold, 12, {ai_r.x + 38, ai_r.y, ai_r.w - 40, ai_r.h}, "Assistant", afg);
+    if (ui.clicked(ui.id("ide-ai"), ai_r)) {
+        agent.open = !agent.open;
+        if (agent.open) agent_load_models(settings.ai_provider);
+    }
     // branch popup
     Rect bp{branch_r.x, rc.bottom(), 300, std::min(420.f, r.height() - rc.bottom())};
     if (ui::begin_popup(ui, bpid, bp, T.bg, 0.f)) {
@@ -489,6 +503,16 @@ void App::draw_ide(const Rect& rc) {
     float sw = std::clamp(settings.sidebar_width, 220.f, std::max(260.f, rc.w * 0.5f));
     Rect side{rc.x, rc.y, sw, rc.h};
     Rect main{rc.x + sw + 1, rc.y, rc.w - sw - 1, rc.h - panel_inset_};
+    if (agent.open) {
+        float aw = std::clamp(settings.ai_width, 300.f, std::max(300.f, main.w - 300));
+        Rect ap{main.right() - aw, rc.y, aw, rc.h - panel_inset_};
+        main.w -= aw;
+        r.push_clip(ap);
+        draw_agent_panel(ap);
+        r.pop_clip();
+        float nw = ui::splitter(ui, ui.id("ai-split"), {ap.x, ap.y, 1, ap.h}, ap.x, main.x + 300, rc.right() - 300);
+        if (nw != ap.x) settings.ai_width = rc.right() - nw;
+    }
     r.line_v(side.right(), side.y, side.bottom(), T.border);
     auto changes = ide_changes();
     int nt = ui::tabs(ui, ui.id("ide-side-tabs"), {side.x, side.y, side.w, 29}, {"Files", "Changes"}, ide.side_tab,

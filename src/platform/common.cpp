@@ -397,6 +397,37 @@ void secret_delete(const std::string& key) {
 }
 #endif
 
+std::string arch_name() {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "x86_64";
+#else
+    return "unknown";
+#endif
+}
+
+std::string executable_path() {
+#ifdef _WIN32
+    std::wstring buf(32768, L'\0');
+    DWORD n = GetModuleFileNameW(nullptr, buf.data(), DWORD(buf.size()));
+    buf.resize(n);
+    auto u8 = fs::path(buf).u8string();
+    return std::string(u8.begin(), u8.end());
+#elif defined(__APPLE__)
+    char exe[PATH_MAX];
+    uint32_t sz = sizeof exe;
+    if (_NSGetExecutablePath(exe, &sz) != 0) return "";
+    std::error_code ec;
+    auto p = fs::weakly_canonical(exe, ec);
+    return ec ? std::string(exe) : p.string();
+#else
+    std::error_code ec;
+    auto p = fs::read_symlink("/proc/self/exe", ec);
+    return ec ? "" : p.string();
+#endif
+}
+
 PFN_vkGetInstanceProcAddr load_vulkan() {
 #ifdef _WIN32
     HMODULE m = LoadLibraryW(L"vulkan-1.dll");

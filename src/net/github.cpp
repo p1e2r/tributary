@@ -49,6 +49,10 @@ static json::Value api(const Account& a, const std::string& method, const std::s
     return v;
 }
 
+json::Value rest(const Account& a, const std::string& method, const std::string& path, const std::string& body) {
+    return api(a, method, path, body);
+}
+
 DeviceCode start_device_flow(const std::string& client_id) {
     net::Request req;
     req.method = "POST";

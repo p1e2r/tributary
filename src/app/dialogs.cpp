@@ -15,7 +15,7 @@ using gfx::FontId;
 using plat::Key;
 namespace fs = std::filesystem;
 
-static const char* kVersion = "0.2.0";
+static const char* kVersion = TRIBUTARY_VERSION;
 
 static std::string human_size(uint64_t b) {
     char buf[32];
@@ -431,9 +431,13 @@ void App::draw_dialogs() {
             Rect c = ui::begin_modal(ui, ui.id("dlg-settings"), plat::os_name() == "Windows" ? "Options" : "Settings", 760, 520, &closed);
             // .tab-bar.vertical: 150px items, padding 10, margin 3px 20px, blue when selected
             Rect nav{c.x, c.y, 190, c.h - 65};
-            const char* tabsl[] = {"Accounts", "Integrations", "Git", "Appearance", "Advanced"};
-            const char* icons[] = {"person", "code", "git-commit", "eye", "gear"};
-            for (int i = 0; i < 5; i++) {
+            const char* tabsl[] = {"Accounts", "Integrations", "Git", "Appearance", "Advanced", "AI"};
+            const char* icons[] = {"person", "code", "git-commit", "eye", "gear", "sparkle-fill"};
+            if (!settings_d.ai_loaded) {
+                for (int i = 0; i < ai::kProviderCount; i++) settings_d.ai_keys[i] = settings_d.ai_keys_was[i] = ai_key(i);
+                settings_d.ai_loaded = true;
+            }
+            for (int i = 0; i < 6; i++) {
                 Rect row{nav.x + 20, nav.y + 13 + float(i) * 44, 150, 38};
                 bool sel = settings_d.tab == i;
                 if (sel) r.rect(row, T.accent_emphasis, 6);
@@ -494,6 +498,29 @@ void App::draw_dialogs() {
                     }
                     y += 40;
                     r.draw_text_in(FontId::Regular, 12, {x, y, w, 18}, "The repository path is appended, e.g. \"open -a iTerm\"", T.text_muted);
+                    y += 28;
+                    r.line_h(x, x + w, y, T.border);
+                    y += 12;
+                    r.draw_text_in(FontId::Bold, 14, {x, y, w, 20}, "MCP server", T.text);
+                    y += 26;
+                    y += ui::wrapped_text(ui, {x, y, w, 40}, "Claude Desktop, Claude Code, VS Code, Cursor and other AI apps can use your repositories and GitHub account through Tributary. Add this server to their MCP settings:",
+                                          FontId::Regular, 12, T.text_muted, 1.4f) + 8;
+                    {
+                        std::string exe = plat::executable_path();
+                        std::string esc;
+                        for (char ch : exe) { if (ch == '\\' || ch == '"') esc += '\\'; esc += ch; }
+                        std::string cfg = "{\n  \"mcpServers\": {\n    \"tributary\": {\n      \"command\": \"" + esc + "\",\n      \"args\": [\"--mcp\"]\n    }\n  }\n}";
+                        std::string shown = "\"tributary\": {\n  \"command\": \"" + esc + "\",\n  \"args\": [\"--mcp\"]\n}";
+                        Rect box{x, y, w, 76};
+                        r.rect(box, T.bg_subtle, 6, 1, T.border);
+                        r.push_clip(box.inset(10, 8));
+                        ui::wrapped_text(ui, {box.x + 10, box.y + 8, box.w - 90, box.h - 16}, shown, FontId::Mono, 11, T.text, 1.35f);
+                        r.pop_clip();
+                        if (ui::button(ui, ui.id("set-mcp-copy"), {box.right() - 70, box.y + 8, 60, 24}, "Copy")) {
+                            win.clipboard_set(cfg);
+                            toast("Copied the MCP server settings.");
+                        }
+                    }
                     break;
                 case 2:
                     y = field_label(*this, x, y, w, "Name");
@@ -559,6 +586,8 @@ void App::draw_dialogs() {
                     ui::checkbox_label(ui, ui.id("set-confirm-remove"), {x, y, w, 24}, settings.confirm_remove_repo, "Confirm before removing repositories");
                     y += 30;
                     ui::checkbox_label(ui, ui.id("set-confirm-force"), {x, y, w, 24}, settings.confirm_force_push, "Confirm before force pushing");
+                    y += 30;
+                    ui::checkbox_label(ui, ui.id("set-check-updates"), {x, y, w, 24}, settings.check_updates, "Check for updates automatically");
                     y += 40;
                     y = field_label(*this, x, y, w, "GitHub OAuth app client ID (enables browser sign-in)");
                     {
@@ -571,10 +600,49 @@ void App::draw_dialogs() {
                     ui::wrapped_text(ui, {x, y, w, 40}, "Register an OAuth app at github.com/settings/developers with Device Flow enabled, then paste its client ID.",
                                      FontId::Regular, 12, T.text_muted);
                     break;
+                case 5: {
+                    ui::wrapped_text(ui, {x, y, w, 36}, "The assistant in the GitHub editor can use Claude, GPT, Gemini or a local Ollama model. Keys are kept in your system keychain.",
+                                     FontId::Regular, 12, T.text_muted, 1.4f);
+                    y += 40;
+                    const char* ph[] = {"sk-ant-…", "sk-…", "AIza…", ""};
+                    const char* bph[] = {"https://api.anthropic.com", "https://api.openai.com/v1", "https://generativelanguage.googleapis.com", "http://localhost:11434"};
+                    for (int i = 0; i < ai::kProviderCount; i++) {
+                        auto pv = ai::Provider(i);
+                        bool cur = settings.ai_provider == i;
+                        if (ui::radio(ui, ui.id("set-ai-prov", i), {x, y, 200, 22}, cur, ai::provider_name(pv))) { settings.ai_provider = i; save_state(); }
+                        y += 26;
+                        float fx = x + 24, fw = w - 24;
+                        if (ai::needs_key(pv)) {
+                            ui::TextFieldOpts o;
+                            o.placeholder = std::string("API key  ") + ph[i];
+                            o.password = true;
+                            o.mono = true;
+                            ui::text_field(ui, ui.id("set-ai-key", i), {fx, y, fw * 0.55f - 6, 25}, settings_d.ai_keys[i], o);
+                            ui::TextFieldOpts b;
+                            b.placeholder = bph[i];
+                            ui::text_field(ui, ui.id("set-ai-base", i), {fx + fw * 0.55f, y, fw * 0.45f, 25}, settings.ai_base[i], b);
+                        } else {
+                            ui::TextFieldOpts b;
+                            b.placeholder = std::string("Host  ") + bph[i];
+                            ui::text_field(ui, ui.id("set-ai-base", i), {fx, y, fw, 25}, settings.ai_base[i], b);
+                        }
+                        y += 35;
+                    }
+                    y += 4;
+                    ui::checkbox_label(ui, ui.id("set-ai-ask"), {x, y, w, 24}, settings.ai_ask, "Ask before the assistant changes files");
+                    break;
+                }
             }
             bool ok = footer(*this, c, "Save", true, &cancel);
             ui::end_modal(ui);
             if (ok) {
+                for (int i = 0; i < ai::kProviderCount; i++)
+                    if (git::trim(settings_d.ai_keys[i]) != settings_d.ai_keys_was[i]) {
+                        set_ai_key(i, git::trim(settings_d.ai_keys[i]));
+                        agent.models.erase(i);
+                        agent.models_error.erase(i);
+                    }
+                for (auto& b : settings.ai_base) b = git::trim(b);
                 try {
                     auto cfg = git::Config::load(git::global_config_path());
                     bool changed = false;
@@ -664,7 +732,7 @@ void App::draw_dialogs() {
 
         // ------------------------------------------------------------ misc
         case Dialog::About: {
-            Rect c = ui::begin_modal(ui, ui.id("dlg-about"), "About Tributary", 480, 380, &closed);
+            Rect c = ui::begin_modal(ui, ui.id("dlg-about"), "About Tributary", 480, 420, &closed);
             float x = c.x + 24, w = c.w - 48, y = c.y + 22;
             r.icon("git-branch", x + w / 2 - 16, y, 32, T.accent);
             y += 44;
@@ -676,6 +744,29 @@ void App::draw_dialogs() {
                                   FontId::Regular, 12, T.text) + 10;
             ui::wrapped_text(ui, {x, y, w, 80}, "Uses Inter and JetBrains Mono (SIL Open Font License), GitHub Octicons (MIT), and GitHub Desktop's theme values and empty-state illustrations (MIT). Not affiliated with GitHub.",
                              FontId::Regular, 12, T.text_muted);
+            {
+                using U = UpdateState;
+                float uy = c.bottom() - 65 - 40;
+                std::string st;
+                switch (update.s) {
+                    case U::Checking: st = "Checking for updates…"; break;
+                    case U::UpToDate: st = "You're on the latest version."; break;
+                    case U::Available: st = "Version " + update.version + " is available."; break;
+                    case U::Downloading: st = "Downloading " + update.version + "…"; break;
+                    case U::Installing: st = "Installing " + update.version + "…"; break;
+                    case U::Failed: st = update.error; break;
+                    default: break;
+                }
+                if (update.s == U::Checking) ui::spinner(ui, x + 8, uy + 12, 6, T.text_muted);
+                r.draw_text_in(FontId::Regular, 12, {x + (update.s == U::Checking ? 22.f : 0.f), uy, w - 190, 25}, r.ellipsize(FontId::Regular, 12, st, w - 200),
+                               update.s == U::Failed ? T.danger : T.text_muted);
+                if (update.s == U::Available) {
+                    if (ui::button(ui, ui.id("about-install"), {x + w - 170, uy, 170, 25}, "Update and restart", ui::BtnStyle::Primary)) install_update();
+                } else if (ui::button(ui, ui.id("about-check"), {x + w - 170, uy, 170, 25}, "Check for updates", ui::BtnStyle::Default,
+                                      update.s != U::Checking && update.s != U::Downloading && update.s != U::Installing)) {
+                    check_for_updates(true);
+                }
+            }
             bool ok = footer(*this, c, "Close", true, nullptr, ui::BtnStyle::Default);
             ui::end_modal(ui);
             if (ok || closed) dialog = Dialog::None;

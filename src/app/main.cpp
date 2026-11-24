@@ -5,6 +5,7 @@
 #include <fstream>
 
 #include "app.hpp"
+#include "mcp.hpp"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -27,13 +28,21 @@ static int run(int argc, char** argv) {
     std::string screenshot;
     double screenshot_after = 1.5;
     std::vector<std::string> open_paths;
+    for (int i = 1; i < argc; i++)
+        if (std::strcmp(argv[i], "--mcp") == 0) {
+            std::string repo;
+            for (int j = 1; j + 1 < argc; j++)
+                if (std::strcmp(argv[j], "--repo") == 0) repo = argv[j + 1];
+            return app::mcp_main(repo);
+        }
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
         if (a == "--screenshot" && i + 1 < argc) screenshot = argv[++i];
         else if (a == "--screenshot-delay" && i + 1 < argc) screenshot_after = std::atof(argv[++i]);
-        else if (a == "--version") { std::puts("Tributary 0.1.0"); return 0; }
+        else if (a == "--version") { std::puts("Tributary " TRIBUTARY_VERSION); return 0; }
         else if (a.size() && a[0] != '-') open_paths.push_back(a);
     }
+    app::cleanup_after_update();
     auto win = plat::Window::create("Tributary", 1200, 780);
     gfx::Renderer renderer(*win);
     app::App application(*win, renderer);

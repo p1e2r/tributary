@@ -607,6 +607,7 @@ std::vector<AppMenu> App::build_menus() {
     }};
     if (mac) view.items.push_back(native("Toggle full screen", -11, K::F, uint8_t(plat::ModCtrl | C)));
     view.items.push_back(it("Terminal", K::Grave, plat::ModCtrl, [this] { toggle_terminal(); }));
+    view.items.push_back(it("Assistant", K::L, C, [this] { agent.open = !agent.open; if (agent.open) agent_load_models(settings.ai_provider); }, ide.open));
     view.items.push_back(sep());
     view.items.push_back(it("Reset zoom", K::Num0, C, [this] { set_zoom(1.0f); }));
     view.items.push_back(it("Zoom in", K::Equals, C, [this] { set_zoom(settings.zoom + 0.1f); }));
@@ -687,6 +688,7 @@ std::vector<AppMenu> App::build_menus() {
         it("Report issue…", K::Unknown, 0, [] { plat::open_url("https://github.com/p1e2r/tributary/issues/new"); }),
         it("Show user guides", K::Unknown, 0, [] { plat::open_url("https://docs.github.com/en/desktop"); }),
     }};
+    help.items.push_back(it("Check for updates…", K::Unknown, 0, [this] { check_for_updates(true); dialog = Dialog::About; }));
     if (!mac) { help.items.push_back(sep()); help.items.push_back(it("About Tributary", K::Unknown, 0, about)); }
     m.push_back(help);
     if (mac) m.insert(m.end() - 1, AppMenu{"Window", {native("Minimize", -12, K::M, C), native("Zoom", -13)}});

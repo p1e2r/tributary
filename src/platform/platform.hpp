@@ -126,6 +126,8 @@ void open_in_editor(const std::string& path, const std::string& custom_cmd = "")
 std::string app_data_dir();       // per-user, created on demand
 std::string default_clone_dir();  // ~/Documents/GitHub like GitHub Desktop
 std::string os_name();
+std::string arch_name();        // "x86_64", "arm64"
+std::string executable_path();  // absolute path of the running binary
 // Run a command with the system shell, detached.
 void spawn_detached(const std::vector<std::string>& argv);
 

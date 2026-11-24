@@ -190,6 +190,7 @@ void App::load_state() {
         settings.oauth_client_id = s["oauth_client_id"].str();
         settings.default_branch = s["default_branch"].str("main");
         settings.confirm_discard = s["confirm_discard"].boolean(true);
+        settings.check_updates = s["check_updates"].boolean(true);
         settings.confirm_force_push = s["confirm_force_push"].boolean(true);
         settings.confirm_remove_repo = s["confirm_remove_repo"].boolean(true);
         settings.sidebar_width = float(s["sidebar_width"].num(250));
@@ -197,6 +198,14 @@ void App::load_state() {
         settings.hide_whitespace = s["hide_whitespace"].boolean(false);
         settings.zoom = float(s["zoom"].num(1.0));
         settings.image_mode = int(s["image_mode"].integer(0));
+        settings.ai_provider = std::clamp(int(s["ai_provider"].integer(0)), 0, ai::kProviderCount - 1);
+        settings.ai_ask = s["ai_ask"].boolean(true);
+        settings.ai_width = float(s["ai_width"].num(400));
+        for (int i = 0; i < ai::kProviderCount; i++) {
+            std::string k = ai::provider_short(ai::Provider(i));
+            settings.ai_model[i] = s["ai_model_" + k].str();
+            settings.ai_base[i] = s["ai_base_" + k].str();
+        }
         auto& a = v["account"];
         account.login = a["login"].str();
         account.name = a["name"].str();
@@ -236,6 +245,7 @@ void App::save_state() {
     s.set("oauth_client_id", settings.oauth_client_id);
     s.set("default_branch", settings.default_branch);
     s.set("confirm_discard", settings.confirm_discard);
+    s.set("check_updates", settings.check_updates);
     s.set("confirm_force_push", settings.confirm_force_push);
     s.set("confirm_remove_repo", settings.confirm_remove_repo);
     s.set("sidebar_width", double(settings.sidebar_width));
@@ -243,6 +253,14 @@ void App::save_state() {
     s.set("hide_whitespace", settings.hide_whitespace);
     s.set("zoom", double(settings.zoom));
     s.set("image_mode", settings.image_mode);
+    s.set("ai_provider", settings.ai_provider);
+    s.set("ai_ask", settings.ai_ask);
+    s.set("ai_width", double(settings.ai_width));
+    for (int i = 0; i < ai::kProviderCount; i++) {
+        std::string k = ai::provider_short(ai::Provider(i));
+        s.set("ai_model_" + k, settings.ai_model[i]);
+        s.set("ai_base_" + k, settings.ai_base[i]);
+    }
     v.set("settings", s);
     json::Value a;
     a.set("login", account.login);
@@ -1543,6 +1561,9 @@ void App::frame() {
     Rect strip{0, 0, W, top};
     Rect toolbar{0, top, W, 50};
     Rect body{0, top + 50, W, H - top - 50};
+    // updates: check shortly after launch, then every 6 hours
+    if (settings.check_updates && update.s == UpdateState::Idle && ui.time > 5 && ui.time - update.last_check > 6 * 3600) check_for_updates(false);
+    if (update_banner_visible()) draw_update_banner(body.cut_top(40));
     // the terminal panel spans the content area, like VS Code's panel
     terminal_focus_id_ = 0;
     if (term_panel.open && (ide.open || (rs && !repos.empty()))) {

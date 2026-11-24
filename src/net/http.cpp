@@ -321,6 +321,7 @@ static Response do_request(const Request& req, const std::function<void(size_t)>
                 resp.body.append(buf, k);
                 n -= k;
                 if (on_body) on_body(resp.body.size());
+                if (req.on_data && !req.on_data(std::string_view(buf, k))) throw NetError("cancelled");
             }
             rd.line();
         }
@@ -332,12 +333,14 @@ static Response do_request(const Request& req, const std::function<void(size_t)>
             if (!k) throw NetError("connection closed before the full response arrived");
             resp.body.append(buf, k);
             if (on_body) on_body(resp.body.size());
+            if (req.on_data && !req.on_data(std::string_view(buf, k))) throw NetError("cancelled");
         }
     } else {
         size_t k;
         while ((k = rd.read(buf, sizeof buf)) > 0) {
             resp.body.append(buf, k);
             if (on_body) on_body(resp.body.size());
+            if (req.on_data && !req.on_data(std::string_view(buf, k))) throw NetError("cancelled");
         }
     }
     return resp;

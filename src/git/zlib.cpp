@@ -118,13 +118,8 @@ const uint8_t DEXT[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6,
 
 }  // namespace
 
-Bytes zlib_inflate(const uint8_t* in, size_t in_len, size_t* consumed, size_t size_hint) {
-    if (in_len < 2) throw Error("zlib: stream too short");
-    uint8_t cmf = in[0], flg = in[1];
-    if ((cmf & 15) != 8 || ((cmf << 8) | flg) % 31 != 0) throw Error("zlib: bad header");
-    if (flg & 0x20) throw Error("zlib: preset dictionary unsupported");
-
-    BitReader br{in + 2, in_len - 2};
+Bytes raw_inflate(const uint8_t* in, size_t in_len, size_t* consumed, size_t size_hint) {
+    BitReader br{in, in_len};
     Bytes out;
     out.reserve(size_hint ? size_hint : in_len * 3);
 
@@ -221,9 +216,20 @@ Bytes zlib_inflate(const uint8_t* in, size_t in_len, size_t* consumed, size_t si
     }
     br.align();
     size_t used = br.consumed();
+    if (consumed) *consumed = used;
+    return out;
+}
+
+Bytes zlib_inflate(const uint8_t* in, size_t in_len, size_t* consumed, size_t size_hint) {
+    if (in_len < 2) throw Error("zlib: stream too short");
+    uint8_t cmf = in[0], flg = in[1];
+    if ((cmf & 15) != 8 || ((cmf << 8) | flg) % 31 != 0) throw Error("zlib: bad header");
+    if (flg & 0x20) throw Error("zlib: preset dictionary unsupported");
+    size_t used = 0;
+    Bytes out = raw_inflate(in + 2, in_len - 2, &used, size_hint);
     // Adler-32 trailer
-    if (used + 4 > br.n) throw Error("zlib: missing checksum");
-    const uint8_t* t = br.p + used;
+    if (2 + used + 4 > in_len) throw Error("zlib: missing checksum");
+    const uint8_t* t = in + 2 + used;
     uint32_t want = uint32_t(t[0]) << 24 | uint32_t(t[1]) << 16 | uint32_t(t[2]) << 8 | t[3];
     if (adler32(out.data(), out.size()) != want) throw Error("zlib: checksum mismatch");
     if (consumed) *consumed = 2 + used + 4;

@@ -56,7 +56,7 @@ $T branch side; $T checkout side; echo s1 > s.txt; $T commit "side 1" >/dev/null
 $T checkout main
 check "preview clean merge" "[ \"\$($T preview refs/heads/side)\" = 'clean commits=2 conflicts=0' ] || [ \"\$($T preview refs/heads/side)\" = 'fast-forward commits=2 conflicts=0' ]"
 echo x > x.txt; $T commit "main x" >/dev/null
-check "squash merge makes one commit" "[ \"\$($T squash-merge refs/heads/side)\" = merged ] && [ \$(git log -1 --format=%p | wc -w | tr -d ' ') = 1 ] && [ \"\$(cat s.txt)\" = \$'s1\ns2' ] && clean"
+check "squash merge makes one commit" "[ \"\$($T squash-merge refs/heads/side)\" = merged ] && [ \$(git log -1 --format=%p | wc -w | tr -d ' ') = 1 ] && [ \"\$(tr -d '\\r' < s.txt)\" = \$'s1\ns2' ] && clean"
 check "squash message lists commits" "git log -1 --format=%B | grep -q '\* side 2'"
 
 # cherry-pick onto another branch

@@ -10,6 +10,8 @@
 #include "../src/git/repo.hpp"
 #include "../src/git/transport.hpp"
 #include "../src/git/lfs.hpp"
+#include "../src/git/archive.hpp"
+#include "../src/net/ai.hpp"
 
 using namespace git;
 
@@ -19,7 +21,9 @@ static void usage() {
               "  merge <ref> | stash [msg] | stash-pop | stash-list | diff <path> | show <rev>\n"
               "  revert <rev> | undo | catfile <id> | clone <url> <dir> | fetch [remote] | push [remote] [branch]\n"
               "  pull | partial <path> <idx,idx,...> <msg> | rename <from> <to> | delete <branch>\n"
-              "  lfs-track <pattern> | lfs-pull [remote] | is-lfs <path>\n");
+              "  lfs-track <pattern> | lfs-pull [remote] | is-lfs <path>\n"
+              "  ai <anthropic|openai|gemini|ollama> <model> <prompt> [base-url]   (key from TRIBUTARY_AI_KEY)\n"
+              "  ai-models <provider> [base-url]\n");
 }
 
 int main(int argc, char** argv) {
@@ -30,6 +34,66 @@ int main(int argc, char** argv) {
     std::string cmd = argv[1];
     try {
         if (cmd == "init") { Repository::init(argv[2]); return 0; }
+        if (cmd == "extract") {
+            for (auto& t : extract_archive(read_file(argv[2]), argv[3])) std::puts(t.c_str());
+            return 0;
+        }
+        if (cmd == "ai" || cmd == "ai-models") {
+            // Exercise the assistant's provider layer: a tool loop over files in the current directory.
+            auto prov = [](const std::string& s) {
+                for (int i = 0; i < ai::kProviderCount; i++)
+                    if (s == ai::provider_short(ai::Provider(i))) return ai::Provider(i);
+                throw std::runtime_error("unknown provider " + s);
+            };
+            ai::Config c;
+            c.provider = prov(argv[2]);
+            const char* key = std::getenv("TRIBUTARY_AI_KEY");
+            c.key = key ? key : "";
+            if (cmd == "ai-models") {
+                if (argc > 3) c.base_url = argv[3];
+                for (auto& m : ai::list_models(c)) std::puts(m.c_str());
+                return 0;
+            }
+            if (argc < 5) { usage(); return 1; }
+            c.model = argv[3];
+            if (argc > 5) c.base_url = argv[5];
+            auto obj = [](json::Object props, json::Array req) { return json::Value(json::Object{{"type", "object"}, {"properties", props}, {"required", req}}); };
+            auto str = json::Value(json::Object{{"type", "string"}});
+            std::vector<ai::ToolDef> tools = {
+                {"read_file", "Read a file", obj({{"path", str}}, {"path"})},
+                {"edit_file", "Replace old_string with new_string in a file", obj({{"path", str}, {"old_string", str}, {"new_string", str}}, {"path", "old_string", "new_string"})},
+            };
+            std::vector<ai::Message> h{{ai::Message::User, argv[4], {}, {}, {}}};
+            for (int step = 0; step < 10; step++) {
+                auto t = ai::complete(c, "You edit files in the current directory.", h, tools,
+                                      [](const std::string& s) { std::fputs(s.c_str(), stdout); std::fflush(stdout); }, [] { return true; });
+                if (!t.error.empty()) throw std::runtime_error(t.error);
+                h.push_back({ai::Message::Assistant, t.text, t.calls, {}, t.raw});
+                std::printf("\n[stop %s]\n", t.stop_reason.c_str());
+                if (t.calls.empty()) break;
+                ai::Message res;
+                res.role = ai::Message::Tools;
+                for (auto& tc : t.calls) {
+                    std::printf("[tool %s %s]\n", tc.name.c_str(), tc.input.dump().c_str());
+                    ai::ToolResult r{tc.id, tc.name, "", false};
+                    std::string path = tc.input["path"].str();
+                    std::string data = read_file(path);
+                    if (tc.name == "read_file") r.content = data;
+                    else {
+                        auto pos = data.find(tc.input["old_string"].str());
+                        if (pos == std::string::npos) { r.content = "not found"; r.error = true; }
+                        else {
+                            data.replace(pos, tc.input["old_string"].str().size(), tc.input["new_string"].str());
+                            write_file(path, data);
+                            r.content = "ok";
+                        }
+                    }
+                    res.results.push_back(r);
+                }
+                h.push_back(res);
+            }
+            return 0;
+        }
         if (cmd == "clone") {
             auto r = clone(argv[2], argv[3], {}, [](const Progress& p) {
                 std::fprintf(stderr, "\r%s %zu/%zu      ", p.phase.c_str(), p.done, p.total);

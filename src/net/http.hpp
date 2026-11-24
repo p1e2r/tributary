@@ -42,6 +42,9 @@ struct Request {
     std::map<std::string, std::string> headers;
     std::string body;
     int max_redirects = 5;
+    // Streaming: called with each piece of the response body as it arrives
+    // (server-sent events, NDJSON). Return false to cancel.
+    std::function<bool(std::string_view)> on_data;
 };
 
 struct Response {

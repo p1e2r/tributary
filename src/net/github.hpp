@@ -113,6 +113,9 @@ struct PrResult {
     std::string html_url, head_repo;  // head_repo: owner/repo the branch was pushed to (a fork if needed)
     bool forked = false;
 };
+// Any REST call (path relative to the account's API endpoint). Throws ApiError.
+json::Value rest(const Account& a, const std::string& method, const std::string& path, const std::string& body = "");
+
 // Throws ApiError or std::runtime_error. `progress` gets short status lines.
 PrResult submit_pull_request(const Account& a, const PrRequest& req, const std::function<void(const std::string&)>& progress = {});
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "process.hpp"
 
+#include <cstdio>
 #include <cstdlib>
 #include <thread>
 
@@ -127,6 +128,27 @@ std::unique_ptr<Process> Process::spawn(const std::vector<std::string>& argv, co
     if (err_r) SetHandleInformation(err_r, HANDLE_FLAG_INHERIT, 0);
     std::wstring cmd;
     std::string exe = find_program(argv[0]);
+    // A "#!" script (GIT_SSH, hooks, credential helpers): run it with sh like Git for Windows does.
+    if (!exe.empty()) {
+        std::string ext = to_lower(fs::path(git_to_path(exe)).extension().string());
+        if (ext != ".exe" && ext != ".com" && ext != ".bat" && ext != ".cmd") {
+            char magic[2] = {};
+            if (FILE* f = _wfopen(git_to_path(exe).wstring().c_str(), L"rb")) {
+                size_t n = fread(magic, 1, 2, f);
+                fclose(f);
+                if (n == 2 && magic[0] == '#' && magic[1] == '!') {
+                    std::string sh = find_program("sh");
+                    if (sh.empty())
+                        if (auto g = find_program("git"); !g.empty()) {
+                            fs::path root = fs::path(git_to_path(g)).parent_path().parent_path();  // …/Git/cmd/git.exe → …/Git
+                            for (auto rel : {"bin/sh.exe", "usr/bin/sh.exe"})
+                                if (fs::exists(root / rel)) { sh = (root / rel).string(); break; }
+                        }
+                    if (!sh.empty()) cmd = quote_arg(widen(sh)) + L" ";
+                }
+            }
+        }
+    }
     for (size_t i = 0; i < argv.size(); i++) {
         if (i) cmd += L' ';
         cmd += quote_arg(widen(i == 0 && !exe.empty() ? exe : argv[i]));

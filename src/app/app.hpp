@@ -8,6 +8,7 @@
 #include <functional>
 #include <future>
 #include <mutex>
+#include <map>
 #include <optional>
 #include <set>
 #include <thread>
@@ -18,6 +19,7 @@
 #include "../ui/ui.hpp"
 #include "../ui/code_editor.hpp"
 #include "../ui/terminal.hpp"
+#include "../net/ai.hpp"
 
 namespace app {
 
@@ -32,10 +34,16 @@ struct Settings {
     std::string oauth_client_id;
     std::string default_branch = "main";
     bool confirm_discard = true, confirm_force_push = true, confirm_remove_repo = true;
+    bool check_updates = true;
     float sidebar_width = 300;
     bool split_diff = false, hide_whitespace = false;
     float zoom = 1.0f;
     int image_mode = 0;  // 0 2-up, 1 swipe, 2 onion skin, 3 difference
+    // AI assistant
+    int ai_provider = 0;                 // ai::Provider
+    std::string ai_model[4], ai_base[4];  // per provider
+    bool ai_ask = true;                  // ask before the agent changes files
+    float ai_width = 400;
 };
 
 struct RepoEntry {
@@ -285,7 +293,7 @@ public:
         int rebase_commits = 0;
     } merge_d;
     struct { std::string name, description, org; bool priv = true; std::vector<std::string> orgs; } publish_d;
-    struct { int tab = 0; std::string token, name, email, default_branch, signing_key; bool loaded = false, sign = false; int sign_format = 0; } settings_d;
+    struct { int tab = 0; std::string token, name, email, default_branch, signing_key; bool loaded = false, sign = false; int sign_format = 0; std::string ai_keys[4], ai_keys_was[4]; bool ai_loaded = false; } settings_d;
     struct { int tab = 0; std::string remote_url, gitignore; bool loaded = false; } repo_settings_d;
     struct { std::vector<std::string> paths; } discard_d;
     struct { std::string name; ObjectId target; } tag_d;
@@ -466,6 +474,49 @@ public:
     Rect draw_terminal_panel(const Rect& content);  // returns what's left above the panel
     IdeState ide;
     uint64_t ide_generation_ = 0;
+    // ---------------- AI assistant (in the GitHub editor)
+    struct AgentItem {
+        enum Kind { User, Assistant, Tool, Error } kind = User;
+        std::string text, target;  // Tool: summary + file it touched
+        bool ok = true;
+    };
+    struct AgentApproval {
+        std::string title, path, preview;
+        std::shared_ptr<std::promise<int>> answer;  // 0 reject, 1 allow, 2 allow for this chat
+    };
+    struct AgentState {
+        bool open = false;
+        std::vector<ai::Message> history;
+        std::vector<AgentItem> items;
+        bool running = false;
+        std::shared_ptr<std::atomic<bool>> cancel;
+        std::string input, key_input;
+        std::optional<AgentApproval> approval;
+        bool allow_all = false;
+        std::map<int, std::vector<std::string>> models;
+        std::map<int, std::string> models_error;
+        std::set<int> models_loading;
+        float scroll_to_bottom = 1;
+    } agent;
+    struct UpdateState {
+        enum S { Idle, Checking, UpToDate, Available, Downloading, Installing, Failed } s = Idle;
+        std::string version, notes_url, asset_url, asset_name, error;
+        size_t size = 0;
+        std::shared_ptr<std::atomic<size_t>> got = std::make_shared<std::atomic<size_t>>(0);
+        bool manual = false, dismissed = false;
+        double last_check = -1e9;
+    } update;
+    void check_for_updates(bool manual);
+    void install_update();
+    void draw_update_banner(const Rect& rc);
+    bool update_banner_visible() const;
+    std::string ai_key(int provider);
+    void set_ai_key(int provider, const std::string& key);
+    ai::Config ai_config();
+    void agent_send(const std::string& text);
+    void agent_load_models(int provider, bool force = false);
+    std::string agent_run_tool(const ai::ToolCall& call, const std::shared_ptr<std::atomic<bool>>& cancel);
+    void draw_agent_panel(const Rect& rc);
     struct { std::string branch, title, body; bool draft = false, submitting = false; std::string progress, error; } ide_pr_d;
     struct { std::string repo, filter; int selected = -1; } ide_open_d;
     struct { std::string path, from; bool rename = false; } ide_name_d;

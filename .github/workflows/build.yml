@@ -31,6 +31,8 @@ jobs:
         run: |
           sudo apt-get install -y git-lfs gnupg
           TRIBCLI=$PWD/build/tribcli bash tests/lfs_sign_test.sh
+      - name: Assistant, MCP server and updater tests
+        run: TRIBCLI=$PWD/build/tribcli APP=$PWD/build/Tributary bash tests/ai_mcp_test.sh
       - name: Package
         run: |
           mkdir -p dist/tributary-linux-x86_64
@@ -52,6 +54,7 @@ jobs:
         shell: bash
         run: |
           for t in engine rewrite; do TRIBCLI=$PWD/build/Release/tribcli.exe bash tests/${t}_test.sh; done
+          TRIBCLI=$PWD/build/Release/tribcli.exe APP=$PWD/build/Release/Tributary.exe bash tests/ai_mcp_test.sh
       - name: Package
         shell: pwsh
         run: |
@@ -83,15 +86,20 @@ jobs:
         run: |
           brew install git-lfs gnupg || true
           for t in engine transport rewrite lfs_sign; do TRIBCLI=$PWD/build/tribcli bash tests/${t}_test.sh; done
+          TRIBCLI=$PWD/build/tribcli APP=$PWD/build/Tributary.app/Contents/MacOS/Tributary bash tests/ai_mcp_test.sh
       - name: Sign (ad-hoc) and make DMG
         run: |
           codesign --force --deep --sign - build/Tributary.app
           mkdir -p dmg && cp -R build/Tributary.app dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname Tributary -srcfolder dmg -ov -format UDZO tributary-macos-${{ matrix.arch }}.dmg
+          # the zip is what in-app updates download
+          ditto -c -k --norsrc --noextattr --noacl --keepParent build/Tributary.app tributary-macos-${{ matrix.arch }}.zip
       - uses: actions/upload-artifact@v4
         with:
           name: tributary-macos-${{ matrix.arch }}
-          path: tributary-macos-${{ matrix.arch }}.dmg
+          path: |
+            tributary-macos-${{ matrix.arch }}.dmg
+            tributary-macos-${{ matrix.arch }}.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
