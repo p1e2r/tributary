@@ -23,7 +23,8 @@ for p in anthropic openai gemini ollama; do
   cp "$T/util.orig" "$T/w/src/util.hpp"
   out=$(cd "$T/w" && TRIBUTARY_AI_KEY=k123 "$TRIBCLI" ai $p m1 "make add constexpr" http://127.0.0.1:$PORT 2>&1)
   check "$p: tool loop edits the file" 'grep -q "constexpr int add" "$T/w/src/util.hpp"'
-  check "$p: streams the final answer" '[[ "$out" == *"ready for your pull request"* ]]'
+  check "$p: streams the final answer" '[[ "$out" == *"ready for your pull request"* ]]' || true
+  [[ "$out" == *"ready for your pull request"* ]] || { echo "---- tribcli output:"; echo "$out" | tail -15; echo "----"; }
   models=$(TRIBUTARY_AI_KEY=k123 "$TRIBCLI" ai-models $p http://127.0.0.1:$PORT 2>&1 | tr -d '\r' | tr '\n' ' ')
   check "$p: lists chat models only" '[[ -n "$models" && "$models" != *embedding* ]]'
 done
