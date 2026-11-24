@@ -251,7 +251,11 @@ Turn complete(const Config& c, const std::string& system, const std::vector<Mess
                     t.error = v["error"]["message"].str("The model returned an error.");
                 }
             };
-            break;
+            // request here: the handler refers to `blocks`, which lives in this scope
+            rq.on_data = [&](std::string_view chunk) { sse.feed(chunk); return !keep_going || keep_going(); };
+            auto r = net::request(rq);
+            if (r.status >= 400) t.error = error_message(r);
+            return t;
         }
         case Provider::OpenAI: {
             rq.url = base(c) + "/chat/completions";
@@ -343,10 +347,6 @@ Turn complete(const Config& c, const std::string& system, const std::vector<Mess
             return t;
         }
     }
-    // Anthropic (shared SSE path)
-    rq.on_data = [&](std::string_view chunk) { sse.feed(chunk); return !keep_going || keep_going(); };
-    auto r = net::request(rq);
-    if (r.status >= 400) t.error = error_message(r);
     return t;
 }
 
