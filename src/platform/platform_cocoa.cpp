@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // macOS platform layer in pure C++: Cocoa is driven through the Objective-C
 // runtime's C API (objc_msgSend, objc_allocateClassPair, ...), so there is no
-// Objective-C source in the project. Rendering goes through a CAMetalLayer and
-// MoltenVK (VK_EXT_metal_surface).
+// Objective-C source in the project. Rendering goes through a CAMetalLayer with
+// Tributary's own Metal backend (src/gfx/renderer_metal.cpp).
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -145,6 +145,8 @@ public:
         msg<long>(pb, "clearContents");
         msg<signed char>(pb, "setString:forType:", nsstr(s), nsstr("public.utf8-plain-text"));
     }
+
+    void* metal_layer() override { return layer_; }
 
     std::vector<const char*> vk_instance_extensions() const override { return {"VK_KHR_surface", "VK_EXT_metal_surface"}; }
 

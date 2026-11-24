@@ -75,18 +75,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Dependencies
-        run: brew install molten-vk vulkan-headers ninja
+        run: brew install ninja
       - name: Build
         run: |
-          MVK="$(brew --prefix molten-vk)/lib/libMoltenVK.dylib"
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
-                -DTRIBUTARY_MOLTENVK="$MVK" -DVULKAN_HEADERS_DIR="$(brew --prefix vulkan-headers)/include"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
           cmake --build build
       - name: Tests (engine, transport, rewrite, LFS, signing)
         run: |
           brew install git-lfs gnupg || true
           for t in engine transport rewrite lfs_sign; do TRIBCLI=$PWD/build/tribcli bash tests/${t}_test.sh; done
           TRIBCLI=$PWD/build/tribcli APP=$PWD/build/Tributary.app/Contents/MacOS/Tributary bash tests/ai_mcp_test.sh
+      - name: Screenshot (Metal renderer smoke test)
+        continue-on-error: true
+        run: |
+          mkdir -p shot-home
+          HOME=$PWD/shot-home perl -e 'alarm 90; exec @ARGV' build/Tributary.app/Contents/MacOS/Tributary --screenshot shot-${{ matrix.arch }}.ppm --screenshot-delay 4
+          ls -la shot-*.ppm
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshot-macos-${{ matrix.arch }}
+          path: shot-${{ matrix.arch }}.ppm
       - name: Sign (ad-hoc) and make DMG
         run: |
           codesign --force --deep --sign - build/Tributary.app

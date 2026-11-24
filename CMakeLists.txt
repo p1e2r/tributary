@@ -41,8 +41,8 @@ endif()
 
 # ---------------------------------------------------------------- app
 if(TRIBUTARY_BUILD_APP)
-  # Only Vulkan *headers* are needed: the loader (vulkan-1.dll / libvulkan.so.1 /
-  # MoltenVK) is opened at runtime, so there's no link-time dependency.
+  # Only Vulkan *headers* are needed: the loader (vulkan-1.dll / libvulkan.so.1) is
+  # opened at runtime, so there's no link-time dependency. macOS uses the Metal backend.
   find_path(VULKAN_HEADERS_DIR vulkan/vulkan.h HINTS $ENV{VULKAN_SDK}/include)
   if(NOT VULKAN_HEADERS_DIR)
     include(FetchContent)
@@ -62,7 +62,7 @@ if(TRIBUTARY_BUILD_APP)
     add_executable(Tributary WIN32 ${APP_SOURCES})
     target_link_libraries(Tributary PRIVATE user32 gdi32 shell32 ole32 dwmapi imm32 comdlg32 shcore)
   elseif(APPLE)
-    list(APPEND APP_SOURCES src/platform/platform_cocoa.cpp src/platform/pty_posix.cpp)
+    list(APPEND APP_SOURCES src/platform/platform_cocoa.cpp src/platform/pty_posix.cpp src/gfx/renderer_metal.cpp)
     add_executable(Tributary MACOSX_BUNDLE ${APP_SOURCES} assets/icon/Tributary.icns)
     set_source_files_properties(assets/icon/Tributary.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(Tributary PROPERTIES
@@ -71,15 +71,7 @@ if(TRIBUTARY_BUILD_APP)
       MACOSX_BUNDLE_ICON_FILE "Tributary.icns"
       MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
       MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION})
-    target_link_libraries(Tributary PRIVATE "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework IOSurface")
-    set_target_properties(Tributary PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks" BUILD_WITH_INSTALL_RPATH ON)
-    # Bundle MoltenVK (pass -DTRIBUTARY_MOLTENVK=/path/to/libMoltenVK.dylib)
-    set(TRIBUTARY_MOLTENVK "" CACHE FILEPATH "libMoltenVK.dylib to copy into the app bundle")
-    if(TRIBUTARY_MOLTENVK)
-      add_custom_command(TARGET Tributary POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:Tributary>/Frameworks
-        COMMAND ${CMAKE_COMMAND} -E copy ${TRIBUTARY_MOLTENVK} $<TARGET_BUNDLE_CONTENT_DIR:Tributary>/Frameworks/libMoltenVK.dylib)
-    endif()
+    target_link_libraries(Tributary PRIVATE "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework CoreGraphics")
   else()
     find_package(X11 REQUIRED)
     list(APPEND APP_SOURCES src/platform/platform_x11.cpp src/platform/pty_posix.cpp)

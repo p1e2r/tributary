@@ -8,6 +8,7 @@
 #include <stdexcept>
 
 #include "embedded.hpp"
+#include "renderer_batch.hpp"
 
 namespace gfx {
 
@@ -17,6 +18,7 @@ Rect Rect::intersect(const Rect& o) const {
     return {x0, y0, std::max(0.f, x1 - x0), std::max(0.f, y1 - y0)};
 }
 
+#ifndef __APPLE__
 // ================================================================ Vulkan function table
 #define VK_GLOBAL_FNS(X) X(vkCreateInstance) X(vkEnumerateInstanceExtensionProperties)
 #define VK_INSTANCE_FNS(X)                                                                                  \
@@ -63,12 +65,7 @@ struct Buffer {
     VkDeviceSize size = 0;
 };
 
-struct Batch {
-    int layer;
-    Rect clip;
-    uint64_t tex = 0;  // 0 = atlas only
-    std::vector<Instance> items;
-};
+
 
 struct Texture {
     VkImage image = VK_NULL_HANDLE;
@@ -701,7 +698,10 @@ struct Renderer::Impl {
     }
 };
 
+#endif  // !__APPLE__
+
 // ================================================================ Renderer
+#ifndef __APPLE__
 Renderer::Renderer(plat::Window& win) : impl_(std::make_unique<Impl>()), win_(win) {
     impl_->init(win);
     scale_ = win.scale();
@@ -737,7 +737,6 @@ bool Renderer::begin_frame(Color clear) {
     return I.swapchain_ok;
 }
 
-void Renderer::push_instance(const Instance& in) { push_instance_tex(in, 0); }
 
 void Renderer::push_instance_tex(const Instance& in, uint64_t tex) {
     auto& B = impl_->batches;
@@ -751,6 +750,10 @@ void Renderer::push_instance_tex(const Instance& in, uint64_t tex) {
         B.push_back({layer_, clip, tex, {}});
     B.back().items.push_back(in);
 }
+
+#endif
+
+void Renderer::push_instance(const Instance& in) { push_instance_tex(in, 0); }
 
 void Renderer::rect(const Rect& r, Color c, float radius, float border, Color bc) {
     if (c.a <= 0 && (border <= 0 || bc.a <= 0)) return;
@@ -845,6 +848,7 @@ void Renderer::icon(const std::string& name, float x, float y, float size, Color
     push_instance(in);
 }
 
+#ifndef __APPLE__
 void Renderer::image(uint64_t key, const Image& img, const Rect& r, float alpha) {
     auto& I = *impl_;
     if (!img.valid() || r.w <= 0 || r.h <= 0) return;
@@ -860,10 +864,13 @@ void Renderer::image(uint64_t key, const Image& img, const Rect& r, float alpha)
     push_instance_tex(in, key);
 }
 
+#endif
+
 void Renderer::push_clip(const Rect& r) { clips_.push_back(clips_.empty() ? r : clips_.back().intersect(r)); }
 void Renderer::pop_clip() { if (!clips_.empty()) clips_.pop_back(); }
 void Renderer::set_layer(int l) { layer_ = l; }
 
+#ifndef __APPLE__
 void Renderer::end_frame() {
     auto& I = *impl_;
     auto& vk = I.vk;
@@ -1012,5 +1019,7 @@ bool Renderer::capture(std::vector<uint8_t>& rgba, int& w, int& h) {
     I.capture_ready = false;
     return true;
 }
+
+#endif
 
 }  // namespace gfx

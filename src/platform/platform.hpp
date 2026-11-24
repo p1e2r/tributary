@@ -87,6 +87,8 @@ public:
     // Vulkan glue
     virtual std::vector<const char*> vk_instance_extensions() const = 0;
     virtual VkSurfaceKHR vk_create_surface(VkInstance inst, PFN_vkGetInstanceProcAddr gipa) = 0;
+    // macOS: the view's CAMetalLayer (the Metal backend draws into it). nullptr elsewhere.
+    virtual void* metal_layer() { return nullptr; }
 
     // Native dialogs; nullopt if cancelled or unsupported (the app falls back
     // to its own in-app path field).
