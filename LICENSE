@@ -22,6 +22,4 @@ SOFTWARE.
 
 -------------------------------------------------------------------------------
 Bundled assets keep their own licenses:
-  assets/fonts/Inter-*.ttf            SIL Open Font License 1.1 (assets/fonts/Inter-OFL.txt)
-  assets/fonts/JetBrainsMono-*.ttf    SIL Open Font License 1.1 (assets/fonts/JetBrainsMono-OFL.txt)
   src/app/octicons.inc (icon paths)   MIT, Copyright (c) GitHub Inc. (assets/OCTICONS-LICENSE.txt)

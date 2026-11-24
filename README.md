@@ -1,6 +1,6 @@
 # Tributary
 
-**GitHub Desktop, rewritten from scratch in C++.** No Electron, no Qt, no libgit2, and no shelling out to `git`. The git engine, git's smart-HTTP protocol, the HTTP client, the Vulkan renderer, the TrueType rasterizer and the UI toolkit are all hand-written C++20 (about 16k lines). The release binary is about 3 MB, fonts included.
+**GitHub Desktop, rewritten from scratch in C++.** No Electron, no Qt, no libgit2, and no shelling out to `git`. The git engine, git's smart-HTTP protocol, the HTTP client, the Vulkan and Metal renderers, the TrueType rasterizer, the UI toolkit and even the typefaces are all written from scratch in C++20. The release binary is about 5 MB, fonts included.
 
 ![History view](docs/history-light.png)
 
@@ -92,7 +92,13 @@ src/app/       the GitHub Desktop UI, the GitHub editor and its assistant (agent
                the terminal panel, the MCP server (mcp.cpp), the updater (update.cpp)
 ```
 
-All git work runs on a worker thread, and the UI renders from snapshots. Vulkan is loaded at runtime: `vulkan-1.dll` on Windows, `libvulkan.so.1` on Linux, and the bundled `libMoltenVK.dylib` on macOS. Only Vulkan headers are needed to build.
+All git work runs on a worker thread, and the UI renders from snapshots. On Windows and Linux the renderer uses Vulkan, loaded at runtime (`vulkan-1.dll`, `libvulkan.so.1`), so only Vulkan headers are needed to build. On macOS it draws with Metal directly (`src/gfx/renderer_metal.cpp`), called from C++ through the Objective-C runtime with the shaders written in the Metal Shading Language. There's no MoltenVK.
+
+### Fonts
+
+The UI is set in **Tributary Sans** (Regular and Bold) and **Tributary Mono**, which are Tributary's own typefaces. `tools/fontgen` is a small C++ program that builds them at compile time. Every glyph is drawn there as a centreline skeleton of lines, Bézier curves and superellipse arcs, then stroked with an elliptical pen into outlines, so one set of drawings makes all three fonts. The program writes the TrueType files itself (glyf, cmap, hmtx, OS/2, name, post, and GPOS kerning).
+
+Coverage is ASCII, Latin-1 and Latin Extended-A/B and Vietnamese letters (accents are composed from marks), punctuation, currency signs, arrows, the ⌘ ⇧ ⌥ ⌃ keys, and in the mono font all box drawing and block characters for the terminal. Mono has a slashed zero and distinct `Il1|`. Run `fontgen --specimen out.pgm "48 Hello"` to render sample text.
 
 The engine is tested against real git: `tests/engine_test.sh` (40 checks) and `tests/transport_test.sh` (10 checks against `git http-backend`) verify that git sees exactly the commits, trees, index, stashes and packs Tributary writes, and vice versa (`git fsck --strict` stays clean). `tests/ai_mcp_test.sh` runs the assistant against mocks of all four providers' streaming APIs, talks to the MCP server over stdio, and round-trips the updater's archive formats. CI runs every suite on Linux, macOS (arm64 and Intel) and Windows.
 
@@ -136,4 +142,4 @@ GitHub Actions (`.github/workflows/build.yml`) builds Linux, Windows and macOS (
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Inter and JetBrains Mono are under the SIL OFL. Octicons, and GitHub Desktop's theme values and empty-state illustrations (in `assets/illustrations`), are MIT © GitHub; see `assets/illustrations/LICENSE-github-desktop.txt`. GitHub's logos and trademarks are not used. Tributary is not affiliated with GitHub.
+MIT. See [LICENSE](LICENSE). The typefaces are MIT too. Octicons, and GitHub Desktop's theme values and empty-state illustrations (in `assets/illustrations`), are MIT © GitHub; see `assets/illustrations/LICENSE-github-desktop.txt`. GitHub's logos and trademarks are not used. Tributary is not affiliated with GitHub.

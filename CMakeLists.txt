@@ -53,6 +53,16 @@ if(TRIBUTARY_BUILD_APP)
     FetchContent_MakeAvailable(vulkan_headers)
     set(VULKAN_HEADERS_DIR ${vulkan_headers_SOURCE_DIR}/include)
   endif()
+  # Tributary's own typefaces, generated from the designs in tools/fontgen at build time
+  add_executable(fontgen tools/fontgen/fontgen.cpp)
+  set(FONT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/fonts)
+  add_custom_command(
+    OUTPUT ${FONT_DIR}/TributarySans-Regular.ttf ${FONT_DIR}/TributarySans-Bold.ttf ${FONT_DIR}/TributaryMono-Regular.ttf
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${FONT_DIR}
+    COMMAND fontgen ${FONT_DIR}
+    DEPENDS fontgen tools/fontgen/fontgen.cpp tools/fontgen/geom.hpp tools/fontgen/ttf.hpp
+            tools/fontgen/decomp.inc tools/fontgen/boxdraw.inc
+    VERBATIM)
   set(APP_SOURCES
     src/gfx/font.cpp src/gfx/renderer.cpp src/gfx/embedded.cpp src/gfx/image.cpp
     src/ui/ui.cpp src/ui/widgets.cpp src/ui/code_editor.cpp src/ui/terminal.cpp
@@ -91,9 +101,9 @@ if(TRIBUTARY_BUILD_APP)
 
   # Embed fonts (and precompiled SPIR-V) into the binary with a tiny CMake step.
   set(EMBED_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf
-    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Inter-SemiBold.ttf
-    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/JetBrainsMono-Regular.ttf
+    ${FONT_DIR}/TributarySans-Regular.ttf
+    ${FONT_DIR}/TributarySans-Bold.ttf
+    ${FONT_DIR}/TributaryMono-Regular.ttf
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/shaders/ui.vert.spv
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/shaders/ui.frag.spv)
   # GitHub Desktop's empty-state illustrations (MIT), pre-rendered at 2x

@@ -742,7 +742,7 @@ void App::draw_dialogs() {
             y += 34;
             y += ui::wrapped_text(ui, {x, y, w, 80}, "A from-scratch C++ reimplementation of GitHub Desktop: its own git engine, Vulkan renderer and UI toolkit. Released under the MIT License.",
                                   FontId::Regular, 12, T.text) + 10;
-            ui::wrapped_text(ui, {x, y, w, 80}, "Uses Inter and JetBrains Mono (SIL Open Font License), GitHub Octicons (MIT), and GitHub Desktop's theme values and empty-state illustrations (MIT). Not affiliated with GitHub.",
+            ui::wrapped_text(ui, {x, y, w, 80}, "Set in Tributary Sans and Tributary Mono, its own typefaces. Uses GitHub Octicons (MIT), and GitHub Desktop's theme values and empty-state illustrations (MIT). Not affiliated with GitHub.",
                              FontId::Regular, 12, T.text_muted);
             {
                 using U = UpdateState;

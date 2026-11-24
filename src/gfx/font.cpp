@@ -701,9 +701,9 @@ TextSystem::TextSystem() {
         auto blob = embedded::get(name);
         if (!fonts[int(id)].load(blob.data, blob.size)) throw std::runtime_error(std::string("failed to load font ") + name);
     };
-    load(FontId::Regular, "Inter-Regular.ttf");
-    load(FontId::Bold, "Inter-SemiBold.ttf");
-    load(FontId::Mono, "JetBrainsMono-Regular.ttf");
+    load(FontId::Regular, "TributarySans-Regular.ttf");
+    load(FontId::Bold, "TributarySans-Bold.ttf");
+    load(FontId::Mono, "TributaryMono-Regular.ttf");
     for (auto& ic : icons::kIcons) icon_paths_[ic.name] = {parse_svg_path(ic.path), ic.size};
     atlas.clear();
 }

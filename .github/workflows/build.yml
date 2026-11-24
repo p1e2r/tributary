@@ -91,11 +91,6 @@ jobs:
           mkdir -p shot-home
           HOME=$PWD/shot-home perl -e 'alarm 90; exec @ARGV' build/Tributary.app/Contents/MacOS/Tributary --screenshot shot-${{ matrix.arch }}.ppm --screenshot-delay 4
           ls -la shot-*.ppm
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: screenshot-macos-${{ matrix.arch }}
-          path: shot-${{ matrix.arch }}.ppm
       - name: Sign (ad-hoc) and make DMG
         run: |
           codesign --force --deep --sign - build/Tributary.app
@@ -109,6 +104,20 @@ jobs:
           path: |
             tributary-macos-${{ matrix.arch }}.dmg
             tributary-macos-${{ matrix.arch }}.zip
+      - name: Publish screenshot to the ci-screenshots branch
+        if: github.event_name == 'push'
+        continue-on-error: true
+        run: |
+          gzip -9 -c shot-${{ matrix.arch }}.ppm > /tmp/shot.ppm.gz
+          git config user.name "github-actions" && git config user.email "actions@github.com"
+          for i in 1 2 3; do
+            if git fetch -q origin ci-screenshots; then git checkout -q -f -B ci-screenshots FETCH_HEAD
+            else git checkout -q --orphan ci-screenshots && git rm -rqf --cached . >/dev/null; fi
+            cp /tmp/shot.ppm.gz macos-${{ matrix.arch }}.ppm.gz
+            git add macos-${{ matrix.arch }}.ppm.gz
+            git commit -qm "screenshot ${{ matrix.arch }} ${GITHUB_SHA::7}" && git push -q origin ci-screenshots && break
+            sleep 5
+          done
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
