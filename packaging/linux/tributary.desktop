@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tributary
+Comment=A native GitHub Desktop written in C++
+Exec=Tributary %F
+Icon=tributary
+Categories=Development;RevisionControl;
+Terminal=false
+MimeType=inode/directory;

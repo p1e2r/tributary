@@ -1,0 +1,845 @@
+// SPDX-License-Identifier: MIT
+#include "font.hpp"
+
+#include <cctype>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <stdexcept>
+
+#include "../app/octicons.inc"
+#include "embedded.hpp"
+
+namespace gfx {
+
+static constexpr float kPi = 3.14159265358979f;
+
+// ================================================================ UTF-8
+uint32_t utf8_next(std::string_view s, size_t& i) {
+    unsigned char c = (unsigned char)s[i++];
+    if (c < 0x80) return c;
+    int n = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+    uint32_t cp = c & (0x3F >> n);
+    for (int k = 0; k < n && i < s.size(); k++) {
+        unsigned char cc = (unsigned char)s[i];
+        if ((cc & 0xC0) != 0x80) return 0xFFFD;
+        cp = (cp << 6) | (cc & 0x3F);
+        i++;
+    }
+    return n ? cp : 0xFFFD;
+}
+
+size_t utf8_prev_boundary(std::string_view s, size_t i) {
+    if (i == 0) return 0;
+    i--;
+    while (i > 0 && ((unsigned char)s[i] & 0xC0) == 0x80) i--;
+    return i;
+}
+
+size_t utf8_next_boundary(std::string_view s, size_t i) {
+    if (i >= s.size()) return s.size();
+    i++;
+    while (i < s.size() && ((unsigned char)s[i] & 0xC0) == 0x80) i++;
+    return i;
+}
+
+void utf8_append(std::string& s, uint32_t cp) {
+    if (cp < 0x80) s += char(cp);
+    else if (cp < 0x800) { s += char(0xC0 | (cp >> 6)); s += char(0x80 | (cp & 63)); }
+    else if (cp < 0x10000) { s += char(0xE0 | (cp >> 12)); s += char(0x80 | ((cp >> 6) & 63)); s += char(0x80 | (cp & 63)); }
+    else { s += char(0xF0 | (cp >> 18)); s += char(0x80 | ((cp >> 12) & 63)); s += char(0x80 | ((cp >> 6) & 63)); s += char(0x80 | (cp & 63)); }
+}
+
+// ================================================================ Path
+void Path::move_to(float x, float y) {
+    contours.emplace_back();
+    contours.back().push_back({x, y});
+    cur = start = {x, y};
+}
+void Path::line_to(float x, float y) {
+    if (contours.empty()) move_to(cur.x, cur.y);
+    contours.back().push_back({x, y});
+    cur = {x, y};
+}
+void Path::quad_to(float cx, float cy, float x, float y) {
+    float ddx = cur.x - 2 * cx + x, ddy = cur.y - 2 * cy + y;
+    float dd = std::sqrt(ddx * ddx + ddy * ddy);
+    int n = std::clamp(int(1 + std::sqrt(dd * 4)), 1, 64);
+    Vec2 p0 = cur;
+    for (int i = 1; i <= n; i++) {
+        float t = float(i) / float(n), u = 1 - t;
+        line_to(u * u * p0.x + 2 * u * t * cx + t * t * x, u * u * p0.y + 2 * u * t * cy + t * t * y);
+    }
+}
+void Path::cubic_to(float c1x, float c1y, float c2x, float c2y, float x, float y) {
+    Vec2 p0 = cur;
+    float len = std::hypot(c1x - p0.x, c1y - p0.y) + std::hypot(c2x - c1x, c2y - c1y) + std::hypot(x - c2x, y - c2y);
+    int n = std::clamp(int(len * 1.5f) + 2, 2, 96);
+    for (int i = 1; i <= n; i++) {
+        float t = float(i) / float(n), u = 1 - t;
+        float a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+        line_to(a * p0.x + b * c1x + c * c2x + d * x, a * p0.y + b * c1y + c * c2y + d * y);
+    }
+}
+void Path::close() {
+    if (!contours.empty() && !contours.back().empty()) {
+        auto& c = contours.back();
+        if (c.front().x != c.back().x || c.front().y != c.back().y) c.push_back(c.front());
+    }
+    cur = start;
+}
+
+// ================================================================ rasterizer
+namespace {
+struct Accum {
+    int w, h;
+    std::vector<float> a;
+    Accum(int w_, int h_) : w(w_), h(h_), a(size_t(w_ + 3) * size_t(h_), 0.f) {}
+    void line(Vec2 p0, Vec2 p1) {
+        if (std::fabs(p0.y - p1.y) <= 1e-6f) return;
+        float dir = 1;
+        if (p0.y > p1.y) { std::swap(p0, p1); dir = -1; }
+        float dxdy = (p1.x - p0.x) / (p1.y - p0.y);
+        float x = p0.x;
+        int y0 = int(std::max(0.f, p0.y));
+        if (p0.y < 0) x -= p0.y * dxdy;
+        int yend = std::min(h, int(std::ceil(p1.y)));
+        int stride = w + 3;
+        for (int y = y0; y < yend; y++) {
+            float* row = a.data() + size_t(y) * size_t(stride);
+            float dy = std::min(float(y + 1), p1.y) - std::max(float(y), p0.y);
+            float xnext = x + dxdy * dy;
+            float d = dy * dir;
+            float x0 = std::min(x, xnext), x1 = std::max(x, xnext);
+            // clamp into buffer
+            x0 = std::clamp(x0, 0.f, float(w));
+            x1 = std::clamp(x1, 0.f, float(w));
+            float x0floor = std::floor(x0);
+            int x0i = int(x0floor);
+            float x1ceil = std::ceil(x1);
+            int x1i = int(x1ceil);
+            if (x1i <= x0i + 1) {
+                float xmf = 0.5f * (x0 + x1) - x0floor;
+                row[x0i] += d - d * xmf;
+                row[x0i + 1] += d * xmf;
+            } else {
+                float s = 1.0f / (x1 - x0);
+                float x0f = x0 - x0floor;
+                float a0 = 0.5f * s * (1 - x0f) * (1 - x0f);
+                float x1f = x1 - x1ceil + 1;
+                float am = 0.5f * s * x1f * x1f;
+                row[x0i] += d * a0;
+                if (x1i == x0i + 2) {
+                    row[x0i + 1] += d * (1 - a0 - am);
+                } else {
+                    float a1 = s * (1.5f - x0f);
+                    row[x0i + 1] += d * (a1 - a0);
+                    for (int xi = x0i + 2; xi < x1i - 1; xi++) row[xi] += d * s;
+                    float a2 = a1 + float(x1i - x0i - 3) * s;
+                    row[x1i - 1] += d * (1 - a2 - am);
+                }
+                row[x1i] += d * am;
+            }
+            x = xnext;
+        }
+    }
+};
+}  // namespace
+
+Bitmap rasterize(const Path& p, int w, int h, float scale, float dx, float dy, bool even_odd) {
+    Bitmap b;
+    b.w = w;
+    b.h = h;
+    b.px.assign(size_t(w) * size_t(h), 0);
+    if (w <= 0 || h <= 0) return b;
+    Accum acc(w, h);
+    for (auto& c : p.contours) {
+        if (c.size() < 2) continue;
+        for (size_t i = 0; i + 1 < c.size(); i++)
+            acc.line({c[i].x * scale + dx, c[i].y * scale + dy}, {c[i + 1].x * scale + dx, c[i + 1].y * scale + dy});
+        // implicit close
+        if (c.front().x != c.back().x || c.front().y != c.back().y)
+            acc.line({c.back().x * scale + dx, c.back().y * scale + dy}, {c.front().x * scale + dx, c.front().y * scale + dy});
+    }
+    int stride = w + 3;
+    for (int y = 0; y < h; y++) {
+        float s = 0;
+        const float* row = acc.a.data() + size_t(y) * size_t(stride);
+        for (int x = 0; x < w; x++) {
+            s += row[x];
+            float v = std::fabs(s);
+            if (even_odd) {
+                v = std::fmod(v, 2.0f);
+                if (v > 1) v = 2 - v;
+            } else if (v > 1) v = 1;
+            b.px[size_t(y) * size_t(w) + size_t(x)] = uint8_t(v * 255.f + 0.5f);
+        }
+    }
+    return b;
+}
+
+// ================================================================ SVG path parser
+namespace {
+struct Tok {
+    std::string_view s;
+    size_t i = 0;
+    void ws() { while (i < s.size() && (s[i] == ' ' || s[i] == ',' || s[i] == '\n' || s[i] == '\t' || s[i] == '\r')) i++; }
+    bool more_numbers() {
+        ws();
+        return i < s.size() && (std::isdigit((unsigned char)s[i]) || s[i] == '-' || s[i] == '+' || s[i] == '.');
+    }
+    float num() {
+        ws();
+        size_t st = i;
+        if (i < s.size() && (s[i] == '-' || s[i] == '+')) i++;
+        bool dot = false;
+        while (i < s.size() && (std::isdigit((unsigned char)s[i]) || (s[i] == '.' && !dot))) {
+            if (s[i] == '.') dot = true;
+            i++;
+        }
+        if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+            i++;
+            if (i < s.size() && (s[i] == '-' || s[i] == '+')) i++;
+            while (i < s.size() && std::isdigit((unsigned char)s[i])) i++;
+        }
+        return float(std::strtod(std::string(s.substr(st, i - st)).c_str(), nullptr));
+    }
+    float flag() {  // arc flags may be written without separators: "a1 1 0 011 1"
+        ws();
+        if (i < s.size() && (s[i] == '0' || s[i] == '1')) return float(s[i++] - '0');
+        return num();
+    }
+};
+
+void arc_to(Path& p, float rx, float ry, float phi_deg, bool large, bool sweep, float x2, float y2) {
+    float x1 = p.cur.x, y1 = p.cur.y;
+    if (rx == 0 || ry == 0) { p.line_to(x2, y2); return; }
+    if (x1 == x2 && y1 == y2) return;
+    rx = std::fabs(rx);
+    ry = std::fabs(ry);
+    float phi = phi_deg * kPi / 180.f;
+    float cphi = std::cos(phi), sphi = std::sin(phi);
+    float dx = (x1 - x2) / 2, dy = (y1 - y2) / 2;
+    float x1p = cphi * dx + sphi * dy, y1p = -sphi * dx + cphi * dy;
+    float lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+    if (lam > 1) { float s = std::sqrt(lam); rx *= s; ry *= s; }
+    float num = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+    float den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
+    float coef = den == 0 ? 0 : std::sqrt(std::max(0.f, num / den));
+    if (large == sweep) coef = -coef;
+    float cxp = coef * rx * y1p / ry, cyp = -coef * ry * x1p / rx;
+    float cx = cphi * cxp - sphi * cyp + (x1 + x2) / 2;
+    float cy = sphi * cxp + cphi * cyp + (y1 + y2) / 2;
+    auto ang = [](float ux, float uy, float vx, float vy) {
+        float a = std::atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+        return a;
+    };
+    float th1 = ang(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+    float dth = ang((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+    if (!sweep && dth > 0) dth -= 2 * kPi;
+    else if (sweep && dth < 0) dth += 2 * kPi;
+    int n = std::clamp(int(std::fabs(dth) * std::max(rx, ry) * 2.0f) + 4, 4, 128);
+    for (int i = 1; i <= n; i++) {
+        float t = th1 + dth * float(i) / float(n);
+        float ex = rx * std::cos(t), ey = ry * std::sin(t);
+        p.line_to(cphi * ex - sphi * ey + cx, sphi * ex + cphi * ey + cy);
+    }
+    p.cur = {x2, y2};
+}
+}  // namespace
+
+Path parse_svg_path(std::string_view d) {
+    Path p;
+    Tok t{d};
+    char cmd = 0;
+    Vec2 last_ctrl{0, 0};
+    char last_cmd = 0;
+    while (true) {
+        t.ws();
+        if (t.i >= d.size()) break;
+        char c = d[t.i];
+        if (std::isalpha((unsigned char)c) && c != 'e' && c != 'E') { cmd = c; t.i++; }
+        else if (!cmd) break;
+        bool rel = std::islower((unsigned char)cmd);
+        float ox = rel ? p.cur.x : 0, oy = rel ? p.cur.y : 0;
+        switch (std::toupper((unsigned char)cmd)) {
+            case 'M': {
+                float x = t.num() + ox, y = t.num() + oy;
+                p.move_to(x, y);
+                cmd = rel ? 'l' : 'L';  // subsequent pairs are lineto
+                break;
+            }
+            case 'L': { float x = t.num() + ox, y = t.num() + oy; p.line_to(x, y); break; }
+            case 'H': { float x = t.num() + ox; p.line_to(x, p.cur.y); break; }
+            case 'V': { float y = t.num() + oy; p.line_to(p.cur.x, y); break; }
+            case 'C': {
+                float a = t.num() + ox, b = t.num() + oy, c2 = t.num() + ox, d2 = t.num() + oy, x = t.num() + ox, y = t.num() + oy;
+                p.cubic_to(a, b, c2, d2, x, y);
+                last_ctrl = {c2, d2};
+                break;
+            }
+            case 'S': {
+                float a = p.cur.x, b = p.cur.y;
+                if (std::toupper((unsigned char)last_cmd) == 'C' || std::toupper((unsigned char)last_cmd) == 'S') {
+                    a = 2 * p.cur.x - last_ctrl.x;
+                    b = 2 * p.cur.y - last_ctrl.y;
+                }
+                float c2 = t.num() + ox, d2 = t.num() + oy, x = t.num() + ox, y = t.num() + oy;
+                p.cubic_to(a, b, c2, d2, x, y);
+                last_ctrl = {c2, d2};
+                break;
+            }
+            case 'Q': {
+                float a = t.num() + ox, b = t.num() + oy, x = t.num() + ox, y = t.num() + oy;
+                p.quad_to(a, b, x, y);
+                last_ctrl = {a, b};
+                break;
+            }
+            case 'T': {
+                float a = p.cur.x, b = p.cur.y;
+                if (std::toupper((unsigned char)last_cmd) == 'Q' || std::toupper((unsigned char)last_cmd) == 'T') {
+                    a = 2 * p.cur.x - last_ctrl.x;
+                    b = 2 * p.cur.y - last_ctrl.y;
+                }
+                float x = t.num() + ox, y = t.num() + oy;
+                p.quad_to(a, b, x, y);
+                last_ctrl = {a, b};
+                break;
+            }
+            case 'A': {
+                float rx = t.num(), ry = t.num(), rot = t.num();
+                bool large = t.flag() != 0, sweep = t.flag() != 0;
+                float x = t.num() + ox, y = t.num() + oy;
+                arc_to(p, rx, ry, rot, large, sweep, x, y);
+                break;
+            }
+            case 'Z': p.close(); last_cmd = cmd; cmd = 0; continue;
+            default: return p;
+        }
+        last_cmd = cmd;
+        if (!t.more_numbers()) {
+            t.ws();
+            if (t.i < d.size() && !std::isalpha((unsigned char)d[t.i])) t.i++;
+        }
+    }
+    return p;
+}
+
+// ================================================================ TrueType
+static uint16_t u16(const uint8_t* p) { return uint16_t(p[0] << 8 | p[1]); }
+static int16_t i16(const uint8_t* p) { return int16_t(u16(p)); }
+static uint32_t u32(const uint8_t* p) { return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3]; }
+
+uint32_t Font::table(const char* tag) const {
+    uint16_t n = u16(d_ + 4);
+    for (uint16_t i = 0; i < n; i++) {
+        const uint8_t* rec = d_ + 12 + 16 * i;
+        if (std::memcmp(rec, tag, 4) == 0) return u32(rec + 8);
+    }
+    return 0;
+}
+
+bool Font::load(const uint8_t* data, size_t size) {
+    d_ = data;
+    n_ = size;
+    if (size < 12) return false;
+    uint32_t head = table("head"), hhea = table("hhea"), maxp = table("maxp");
+    cmap_ = table("cmap");
+    glyf_ = table("glyf");
+    loca_ = table("loca");
+    hmtx_ = table("hmtx");
+    if (!head || !hhea || !maxp || !cmap_ || !glyf_ || !loca_ || !hmtx_) return false;
+    upem_ = u16(d_ + head + 18);
+    long_loca_ = i16(d_ + head + 50) != 0;
+    ascent_ = i16(d_ + hhea + 4);
+    descent_ = i16(d_ + hhea + 6);
+    line_gap_ = i16(d_ + hhea + 8);
+    num_hmetrics_ = u16(d_ + hhea + 34);
+    num_glyphs_ = u16(d_ + maxp + 4);
+    if (uint32_t os2 = table("OS/2"); os2 && u16(d_ + os2) >= 1) {
+        // prefer typographic metrics if USE_TYPO_METRICS
+        if (u16(d_ + os2 + 62) & (1 << 7)) {
+            ascent_ = i16(d_ + os2 + 68);
+            descent_ = i16(d_ + os2 + 70);
+            line_gap_ = i16(d_ + os2 + 72);
+        }
+    }
+    // choose a unicode cmap subtable (prefer format 12)
+    uint16_t nsub = u16(d_ + cmap_ + 2);
+    uint32_t best = 0;
+    int best_fmt = 0;
+    for (uint16_t i = 0; i < nsub; i++) {
+        const uint8_t* r = d_ + cmap_ + 4 + 8 * i;
+        uint16_t pid = u16(r), eid = u16(r + 2);
+        uint32_t off = cmap_ + u32(r + 4);
+        int fmt = u16(d_ + off);
+        bool unicode = pid == 0 || (pid == 3 && (eid == 1 || eid == 10));
+        if (!unicode) continue;
+        if (fmt == 12 && best_fmt != 12) { best = off; best_fmt = 12; }
+        else if (fmt == 4 && !best_fmt) { best = off; best_fmt = 4; }
+    }
+    cmap_ = best;
+    cmap_format_ = best_fmt;
+    load_gpos_kerning();
+    return cmap_ != 0;
+}
+
+uint16_t Font::glyph_index(uint32_t cp) const {
+    const uint8_t* t = d_ + cmap_;
+    if (cmap_format_ == 4) {
+        if (cp > 0xFFFF) return 0;
+        uint16_t segx2 = u16(t + 6);
+        const uint8_t* ends = t + 14;
+        const uint8_t* starts = ends + segx2 + 2;
+        const uint8_t* deltas = starts + segx2;
+        const uint8_t* ranges = deltas + segx2;
+        // binary search
+        int lo = 0, hi = segx2 / 2 - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            uint16_t end = u16(ends + 2 * mid);
+            uint16_t start = u16(starts + 2 * mid);
+            if (cp > end) lo = mid + 1;
+            else if (cp < start) hi = mid - 1;
+            else {
+                uint16_t ro = u16(ranges + 2 * mid);
+                if (ro == 0) return uint16_t(cp + uint16_t(u16(deltas + 2 * mid)));
+                const uint8_t* g = ranges + 2 * mid + ro + 2 * (cp - start);
+                uint16_t gi = u16(g);
+                return gi ? uint16_t(gi + u16(deltas + 2 * mid)) : 0;
+            }
+        }
+        return 0;
+    }
+    if (cmap_format_ == 12) {
+        uint32_t ngroups = u32(t + 12);
+        int64_t lo = 0, hi = int64_t(ngroups) - 1;
+        while (lo <= hi) {
+            int64_t mid = (lo + hi) / 2;
+            const uint8_t* g = t + 16 + 12 * mid;
+            uint32_t s = u32(g), e = u32(g + 4);
+            if (cp < s) hi = mid - 1;
+            else if (cp > e) lo = mid + 1;
+            else return uint16_t(u32(g + 8) + (cp - s));
+        }
+    }
+    return 0;
+}
+
+float Font::advance(uint16_t g) const {
+    if (g < num_hmetrics_) return float(u16(d_ + hmtx_ + 4 * g));
+    return float(u16(d_ + hmtx_ + 4 * (num_hmetrics_ - 1)));
+}
+
+float Font::kerning(uint16_t l, uint16_t r) const {
+    if (kern_.empty()) return 0;
+    auto it = kern_.find(uint32_t(l) << 16 | r);
+    return it == kern_.end() ? 0.f : float(it->second);
+}
+
+// Parse GPOS PairPos (format 1 and 2) lookups referenced by the 'kern' feature,
+// flattening class-based kerning for glyphs reachable from Latin text.
+void Font::load_gpos_kerning() {
+    uint32_t gpos = table("GPOS");
+    if (!gpos) return;
+    const uint8_t* G = d_ + gpos;
+    const uint8_t* feat_list = G + u16(G + 6);
+    const uint8_t* lookup_list = G + u16(G + 8);
+    std::vector<uint16_t> lookups;
+    uint16_t nfeat = u16(feat_list);
+    for (uint16_t i = 0; i < nfeat; i++) {
+        const uint8_t* rec = feat_list + 2 + 6 * i;
+        if (std::memcmp(rec, "kern", 4) != 0) continue;
+        const uint8_t* f = feat_list + u16(rec + 4);
+        uint16_t n = u16(f + 2);
+        for (uint16_t k = 0; k < n; k++) lookups.push_back(u16(f + 4 + 2 * k));
+    }
+    std::sort(lookups.begin(), lookups.end());
+    lookups.erase(std::unique(lookups.begin(), lookups.end()), lookups.end());
+    // only kern glyphs for printable ASCII + Latin-1 (keeps the table small)
+    std::vector<uint16_t> glyphs;
+    for (uint32_t cp = 32; cp < 256; cp++) if (auto g = glyph_index(cp)) glyphs.push_back(g);
+    std::sort(glyphs.begin(), glyphs.end());
+    glyphs.erase(std::unique(glyphs.begin(), glyphs.end()), glyphs.end());
+
+    auto coverage_index = [&](const uint8_t* cov, uint16_t g) -> int {
+        uint16_t fmt = u16(cov);
+        if (fmt == 1) {
+            uint16_t n = u16(cov + 2);
+            int lo = 0, hi = n - 1;
+            while (lo <= hi) {
+                int mid = (lo + hi) / 2;
+                uint16_t v = u16(cov + 4 + 2 * mid);
+                if (v == g) return mid;
+                if (v < g) lo = mid + 1; else hi = mid - 1;
+            }
+        } else if (fmt == 2) {
+            uint16_t n = u16(cov + 2);
+            for (uint16_t i = 0; i < n; i++) {
+                const uint8_t* r = cov + 4 + 6 * i;
+                if (g >= u16(r) && g <= u16(r + 2)) return u16(r + 4) + (g - u16(r));
+            }
+        }
+        return -1;
+    };
+    auto class_of = [&](const uint8_t* cd, uint16_t g) -> int {
+        uint16_t fmt = u16(cd);
+        if (fmt == 1) {
+            uint16_t start = u16(cd + 2), n = u16(cd + 4);
+            if (g >= start && g < start + n) return u16(cd + 6 + 2 * (g - start));
+        } else if (fmt == 2) {
+            uint16_t n = u16(cd + 2);
+            for (uint16_t i = 0; i < n; i++) {
+                const uint8_t* r = cd + 4 + 6 * i;
+                if (g >= u16(r) && g <= u16(r + 2)) return u16(r + 4);
+            }
+        }
+        return 0;
+    };
+    auto value_size = [](uint16_t fmt) {
+        int n = 0;
+        for (int b = 0; b < 8; b++) if (fmt & (1 << b)) n++;
+        return n * 2;
+    };
+    for (auto li : lookups) {
+        const uint8_t* L = lookup_list + u16(lookup_list + 2 + 2 * li);
+        uint16_t type = u16(L), nsub = u16(L + 4);
+        for (uint16_t s = 0; s < nsub; s++) {
+            const uint8_t* st = L + u16(L + 6 + 2 * s);
+            uint16_t stype = type;
+            if (type == 9) {  // extension
+                stype = u16(st + 2);
+                st = st + u32(st + 4);
+            }
+            if (stype != 2) continue;
+            uint16_t fmt = u16(st);
+            const uint8_t* cov = st + u16(st + 2);
+            uint16_t vf1 = u16(st + 4), vf2 = u16(st + 6);
+            int vs1 = value_size(vf1), vs2 = value_size(vf2);
+            if (!(vf1 & 4)) continue;  // we only use XAdvance of the first glyph
+            int xadv_off = ((vf1 & 1) ? 2 : 0) + ((vf1 & 2) ? 2 : 0);
+            if (fmt == 1) {
+                const uint8_t* sets = st + 10;
+                for (auto g1 : glyphs) {
+                    int ci = coverage_index(cov, g1);
+                    if (ci < 0) continue;
+                    const uint8_t* ps = st + u16(sets + 2 * ci);
+                    uint16_t n = u16(ps);
+                    int rec = 2 + vs1 + vs2;
+                    for (uint16_t k = 0; k < n; k++) {
+                        const uint8_t* r = ps + 2 + rec * k;
+                        uint16_t g2 = u16(r);
+                        if (!std::binary_search(glyphs.begin(), glyphs.end(), g2)) continue;
+                        int16_t v = i16(r + 2 + xadv_off);
+                        auto key = uint32_t(g1) << 16 | g2;
+                        if (v && !kern_.count(key)) kern_[key] = v;
+                    }
+                }
+            } else if (fmt == 2) {
+                const uint8_t* cd1 = st + u16(st + 8);
+                const uint8_t* cd2 = st + u16(st + 10);
+                uint16_t c1n = u16(st + 12), c2n = u16(st + 14);
+                (void)c1n;
+                int rec = vs1 + vs2;
+                for (auto g1 : glyphs) {
+                    if (coverage_index(cov, g1) < 0) continue;
+                    int c1 = class_of(cd1, g1);
+                    for (auto g2 : glyphs) {
+                        int c2 = class_of(cd2, g2);
+                        const uint8_t* r = st + 16 + (size_t(c1) * c2n + size_t(c2)) * size_t(rec);
+                        int16_t v = i16(r + xadv_off);
+                        auto key = uint32_t(g1) << 16 | g2;
+                        if (v && !kern_.count(key)) kern_[key] = v;
+                    }
+                }
+            }
+        }
+    }
+}
+
+Path Font::outline(uint16_t g) const {
+    Path p;
+    float m[6] = {1, 0, 0, 1, 0, 0};
+    outline_into(g, p, m, 0);
+    return p;
+}
+
+void Font::outline_into(uint16_t g, Path& path, const float m[6], int depth) const {
+    if (depth > 8 || g >= num_glyphs_) return;
+    uint32_t off, next;
+    if (long_loca_) { off = u32(d_ + loca_ + 4 * g); next = u32(d_ + loca_ + 4 * (g + 1)); }
+    else { off = uint32_t(u16(d_ + loca_ + 2 * g)) * 2; next = uint32_t(u16(d_ + loca_ + 2 * (g + 1))) * 2; }
+    if (off == next) return;  // empty glyph (space)
+    const uint8_t* G = d_ + glyf_ + off;
+    int16_t ncont = i16(G);
+    auto xf = [&](float x, float y) { return Vec2{m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]}; };
+    if (ncont >= 0) {
+        const uint8_t* ends = G + 10;
+        int npts = ncont ? u16(ends + 2 * (ncont - 1)) + 1 : 0;
+        uint16_t ilen = u16(ends + 2 * ncont);
+        const uint8_t* p = ends + 2 * ncont + 2 + ilen;
+        std::vector<uint8_t> flags(static_cast<size_t>(npts));
+        for (int i = 0; i < npts;) {
+            uint8_t f = *p++;
+            flags[size_t(i++)] = f;
+            if (f & 8) {
+                uint8_t r = *p++;
+                while (r-- && i < npts) flags[size_t(i++)] = f;
+            }
+        }
+        std::vector<Vec2> pts(static_cast<size_t>(npts));
+        int v = 0;
+        for (int i = 0; i < npts; i++) {
+            uint8_t f = flags[size_t(i)];
+            if (f & 2) { int dx = *p++; v += (f & 16) ? dx : -dx; }
+            else if (!(f & 16)) { v += i16(p); p += 2; }
+            pts[size_t(i)].x = float(v);
+        }
+        v = 0;
+        for (int i = 0; i < npts; i++) {
+            uint8_t f = flags[size_t(i)];
+            if (f & 4) { int dy = *p++; v += (f & 32) ? dy : -dy; }
+            else if (!(f & 32)) { v += i16(p); p += 2; }
+            pts[size_t(i)].y = float(v);
+        }
+        int start = 0;
+        for (int c = 0; c < ncont; c++) {
+            int end = u16(ends + 2 * c);
+            int n = end - start + 1;
+            if (n <= 0) { start = end + 1; continue; }
+            auto on = [&](int i) { return flags[size_t(start + (i % n))] & 1; };
+            auto pt = [&](int i) { return pts[size_t(start + (i % n))]; };
+            // find a starting on-curve point
+            int first = -1;
+            for (int i = 0; i < n; i++) if (on(i)) { first = i; break; }
+            Vec2 s;
+            if (first < 0) {  // all off-curve: start at midpoint
+                Vec2 a = pt(0), b = pt(1);
+                s = {(a.x + b.x) / 2, (a.y + b.y) / 2};
+                first = 0;
+            } else s = pt(first);
+            Vec2 ts = xf(s.x, s.y);
+            path.move_to(ts.x, ts.y);
+            for (int k = 1; k <= n; k++) {
+                int i = first + k;
+                Vec2 cpt = pt(i);
+                if (on(i)) {
+                    auto t = xf(cpt.x, cpt.y);
+                    path.line_to(t.x, t.y);
+                } else {
+                    Vec2 nx = pt(i + 1);
+                    Vec2 end2 = on(i + 1) ? nx : Vec2{(cpt.x + nx.x) / 2, (cpt.y + nx.y) / 2};
+                    auto c1 = xf(cpt.x, cpt.y), e2 = xf(end2.x, end2.y);
+                    path.quad_to(c1.x, c1.y, e2.x, e2.y);
+                    if (on(i + 1)) k++;
+                }
+            }
+            path.close();
+            start = end + 1;
+        }
+    } else {
+        // compound glyph
+        const uint8_t* p = G + 10;
+        for (;;) {
+            uint16_t flags = u16(p), gi = u16(p + 2);
+            p += 4;
+            float dx, dy;
+            if (flags & 1) { dx = i16(p); dy = i16(p + 2); p += 4; }
+            else { dx = int8_t(p[0]); dy = int8_t(p[1]); p += 2; }
+            float a = 1, b = 0, c = 0, d = 1;
+            if (flags & 8) { a = d = i16(p) / 16384.f; p += 2; }
+            else if (flags & 0x40) { a = i16(p) / 16384.f; d = i16(p + 2) / 16384.f; p += 4; }
+            else if (flags & 0x80) { a = i16(p) / 16384.f; b = i16(p + 2) / 16384.f; c = i16(p + 4) / 16384.f; d = i16(p + 6) / 16384.f; p += 8; }
+            if (!(flags & 2)) { dx = 0; dy = 0; }  // point matching unsupported
+            float cm[6] = {a, b, c, d, dx, dy};
+            float r[6] = {m[0] * cm[0] + m[2] * cm[1], m[1] * cm[0] + m[3] * cm[1],
+                          m[0] * cm[2] + m[2] * cm[3], m[1] * cm[2] + m[3] * cm[3],
+                          m[0] * cm[4] + m[2] * cm[5] + m[4], m[1] * cm[4] + m[3] * cm[5] + m[5]};
+            outline_into(gi, path, r, depth + 1);
+            if (!(flags & 0x20)) break;
+        }
+    }
+}
+
+// ================================================================ Atlas
+bool Atlas::alloc(int w, int h, uint16_t& x, uint16_t& y) {
+    if (w + 2 > SIZE || h + 2 > SIZE) return false;
+    if (shelf_x_ + w + 1 > SIZE) {
+        shelf_y_ += shelf_h_ + 1;
+        shelf_x_ = 1;
+        shelf_h_ = 0;
+    }
+    if (shelf_y_ + h + 1 > SIZE) return false;
+    x = uint16_t(shelf_x_);
+    y = uint16_t(shelf_y_);
+    shelf_x_ += w + 1;
+    shelf_h_ = std::max(shelf_h_, h);
+    return true;
+}
+
+void Atlas::clear() {
+    std::fill(px.begin(), px.end(), 0);
+    // a small opaque white block at (0,0)-(0,0) is never used; keep (0,0) black
+    shelf_x_ = 1;
+    shelf_y_ = 1;
+    shelf_h_ = 0;
+    dirty_y0 = 0;
+    dirty_y1 = SIZE;
+    generation++;
+}
+
+void Atlas::blit(const Bitmap& b, int x, int y) {
+    for (int r = 0; r < b.h; r++)
+        std::memcpy(px.data() + size_t(y + r) * SIZE + size_t(x), b.px.data() + size_t(r) * size_t(b.w), size_t(b.w));
+    dirty_y0 = std::min(dirty_y0, y);
+    dirty_y1 = std::max(dirty_y1, y + b.h);
+}
+
+// ================================================================ TextSystem
+TextSystem::TextSystem() {
+    auto load = [&](FontId id, const char* name) {
+        auto blob = embedded::get(name);
+        if (!fonts[int(id)].load(blob.data, blob.size)) throw std::runtime_error(std::string("failed to load font ") + name);
+    };
+    load(FontId::Regular, "Inter-Regular.ttf");
+    load(FontId::Bold, "Inter-SemiBold.ttf");
+    load(FontId::Mono, "JetBrainsMono-Regular.ttf");
+    for (auto& ic : icons::kIcons) icon_paths_[ic.name] = {parse_svg_path(ic.path), ic.size};
+    atlas.clear();
+}
+
+void TextSystem::set_scale(float s) {
+    if (s == scale_) return;
+    scale_ = s;
+    reset_cache();
+}
+
+void TextSystem::reset_cache() {
+    cache_.clear();
+    icon_cache_.clear();
+    atlas.clear();
+}
+
+float TextSystem::line_height(FontId f, float size) const {
+    auto& F = fonts[int(f)];
+    return (F.ascent() - F.descent() + F.line_gap()) / F.units_per_em() * size;
+}
+
+float TextSystem::ascent(FontId f, float size) const {
+    auto& F = fonts[int(f)];
+    return F.ascent() / F.units_per_em() * size;
+}
+
+TextRun TextSystem::shape(FontId f, float size, std::string_view text) {
+    TextRun run;
+    float x = 0;
+    uint16_t prev = 0;
+    FontId prev_font = f;
+    for (size_t i = 0; i < text.size();) {
+        uint32_t cp = utf8_next(text, i);
+        if (cp == '\t') cp = ' ';
+        if (cp == '\n' || cp == '\r') cp = ' ';
+        FontId use = f;
+        uint16_t g = fonts[int(f)].glyph_index(cp);
+        if (!g) {
+            for (int k = 0; k < int(FontId::Count) && !g; k++) {
+                g = fonts[k].glyph_index(cp);
+                if (g) use = FontId(k);
+            }
+            if (!g) { use = f; g = fonts[int(f)].glyph_index(0xFFFD); if (!g) g = fonts[int(f)].glyph_index('?'); }
+        }
+        auto& F = fonts[int(use)];
+        float s = size / F.units_per_em();
+        if (prev && use == prev_font) x += F.kerning(prev, g) * s;
+        run.glyphs.push_back({g, x, use});
+        x += F.advance(g) * s;
+        if (cp == ' ' && f == FontId::Mono) {}  // monospace already uniform
+        prev = g;
+        prev_font = use;
+    }
+    run.width = x;
+    return run;
+}
+
+float TextSystem::measure(FontId f, float size, std::string_view text) { return shape(f, size, text).width; }
+
+size_t TextSystem::hit_test(FontId f, float size, std::string_view text, float x) {
+    auto run = shape(f, size, text);
+    size_t byte = 0, gi = 0;
+    for (size_t i = 0; i < text.size(); gi++) {
+        size_t start = i;
+        utf8_next(text, i);
+        float gx = run.glyphs[gi].x;
+        float gw = (gi + 1 < run.glyphs.size() ? run.glyphs[gi + 1].x : run.width) - gx;
+        if (x < gx + gw / 2) return start;
+        byte = i;
+    }
+    return byte;
+}
+
+float TextSystem::caret_x(FontId f, float size, std::string_view text, size_t off) {
+    return measure(f, size, text.substr(0, std::min(off, text.size())));
+}
+
+const GlyphInfo& TextSystem::glyph(FontId f, uint16_t g, float px_size, int subpx) {
+    uint64_t key = uint64_t(f) << 56 | uint64_t(uint32_t(px_size * 4)) << 24 | uint64_t(g) << 4 | uint64_t(subpx);
+    auto it = cache_.find(key);
+    if (it != cache_.end()) return it->second;
+    auto& F = fonts[int(f)];
+    float s = px_size / F.units_per_em();
+    Path p = F.outline(g);
+    GlyphInfo gi;
+    if (!p.contours.empty()) {
+        float minx = 1e9f, miny = 1e9f, maxx = -1e9f, maxy = -1e9f;
+        for (auto& c : p.contours)
+            for (auto& v : c) {
+                minx = std::min(minx, v.x); maxx = std::max(maxx, v.x);
+                miny = std::min(miny, v.y); maxy = std::max(maxy, v.y);
+            }
+        float sx = float(subpx) / 4.f;
+        // pixel bounds (y flipped: font y-up -> bitmap y-down)
+        int x0 = int(std::floor(minx * s + sx)) - 1, x1 = int(std::ceil(maxx * s + sx)) + 1;
+        int y0 = int(std::floor(-maxy * s)) - 1, y1 = int(std::ceil(-miny * s)) + 1;
+        int w = x1 - x0, h = y1 - y0;
+        // flip path y
+        for (auto& c : p.contours) for (auto& v : c) v.y = -v.y;
+        Bitmap bm = rasterize(p, w, h, s, sx - float(x0), -float(y0), false);
+        // gentle gamma to make light-on-dark text read heavier
+        for (auto& v : bm.px) v = uint8_t(std::pow(v / 255.f, 0.85f) * 255.f + 0.5f);
+        uint16_t ax, ay;
+        if (!atlas.alloc(w, h, ax, ay)) {
+            reset_cache();
+            return glyph(f, g, px_size, subpx);
+        }
+        atlas.blit(bm, ax, ay);
+        gi.ax = ax; gi.ay = ay; gi.aw = uint16_t(w); gi.ah = uint16_t(h);
+        gi.off_x = int16_t(x0);
+        gi.off_y = int16_t(y0);
+        gi.valid = true;
+    }
+    return cache_[key] = gi;
+}
+
+const GlyphInfo& TextSystem::icon(const std::string& name, float px_size) {
+    auto key = std::make_pair(name, int(px_size * 4));
+    auto it = icon_cache_.find(key);
+    if (it != icon_cache_.end()) return it->second;
+    GlyphInfo gi;
+    auto pit = icon_paths_.find(name);
+    if (pit != icon_paths_.end()) {
+        int sz = int(std::ceil(px_size));
+        float s = px_size / pit->second.second;
+        Bitmap bm = rasterize(pit->second.first, sz, sz, s, 0, 0, false);
+        uint16_t ax, ay;
+        if (!atlas.alloc(sz, sz, ax, ay)) {
+            reset_cache();
+            return icon(name, px_size);
+        }
+        atlas.blit(bm, ax, ay);
+        gi.ax = ax; gi.ay = ay; gi.aw = uint16_t(sz); gi.ah = uint16_t(sz);
+        gi.valid = true;
+    }
+    return icon_cache_[key] = gi;
+}
+
+}  // namespace gfx

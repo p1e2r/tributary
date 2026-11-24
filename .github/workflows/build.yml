@@ -1,0 +1,98 @@
+name: Build
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libssl-dev libvulkan-dev ninja-build
+      - name: Build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Engine tests (cross-checked against git)
+        run: TRIBCLI=$PWD/build/tribcli bash tests/engine_test.sh
+      - name: Transport tests (smart HTTP against git http-backend)
+        run: TRIBCLI=$PWD/build/tribcli bash tests/transport_test.sh
+      - name: Rewrite, hooks and SSH tests
+        run: TRIBCLI=$PWD/build/tribcli bash tests/rewrite_test.sh
+      - name: Git LFS and commit signing tests (against git-lfs and gpg)
+        run: |
+          sudo apt-get install -y git-lfs gnupg
+          TRIBCLI=$PWD/build/tribcli bash tests/lfs_sign_test.sh
+      - name: Package
+        run: |
+          mkdir -p dist/tributary-linux-x86_64
+          cp build/Tributary dist/tributary-linux-x86_64/
+          cp packaging/linux/tributary.desktop assets/icon/icon-256.png LICENSE README.md dist/tributary-linux-x86_64/
+          tar -C dist -czf tributary-linux-x86_64.tar.gz tributary-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with: { name: tributary-linux-x86_64, path: tributary-linux-x86_64.tar.gz }
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DTRIBUTARY_BUILD_TOOLS=ON
+          cmake --build build --config Release
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/Tributary | Out-Null
+          Copy-Item build/Release/Tributary.exe dist/Tributary/
+          Copy-Item LICENSE, README.md dist/Tributary/
+          Compress-Archive -Path dist/Tributary -DestinationPath tributary-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: tributary-windows-x64, path: tributary-windows-x64.zip }
+
+  macos:
+    strategy:
+      matrix:
+        include:
+          - { runner: macos-15, arch: arm64 }
+          - { runner: macos-15-intel, arch: x86_64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: brew install molten-vk vulkan-headers ninja
+      - name: Build
+        run: |
+          MVK="$(brew --prefix molten-vk)/lib/libMoltenVK.dylib"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+                -DTRIBUTARY_MOLTENVK="$MVK" -DVULKAN_HEADERS_DIR="$(brew --prefix vulkan-headers)/include"
+          cmake --build build
+      - name: Engine tests
+        run: TRIBCLI=$PWD/build/tribcli bash tests/engine_test.sh
+      - name: Sign (ad-hoc) and make DMG
+        run: |
+          codesign --force --deep --sign - build/Tributary.app
+          mkdir -p dmg && cp -R build/Tributary.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname Tributary -srcfolder dmg -ov -format UDZO tributary-macos-${{ matrix.arch }}.dmg
+      - uses: actions/upload-artifact@v4
+        with: { name: tributary-macos-${{ matrix.arch }}, path: "tributary-macos-${{ matrix.arch }}.dmg" }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
